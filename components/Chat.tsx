@@ -146,12 +146,20 @@ export default function Chat({ roomId, userId, username, saveMessages, onLeave }
     socket.emit("join-room", roomId, userId, username, async (response: { size: number; isCreator: boolean; users: {userId: string, username: string}[] }) => {
       setHasJoined(true);
       if (response.isCreator) {
+        console.log("Creating room key...");
         const key = await generateSymKey();
         setRoomKey(key);
-        setIsEncrypted(true);
+        setIsEncrypted(true); // FORCE UNLOCK IMMEDIATELY
         addSystemMessage("You created the secure room. Waiting for others...");
+        
+        // Broadcast my public key immediately so others can send me their keys if they join late
+        const exportedPub = await exportKey(identityKey.publicKey);
+        socket.emit("public-key", { roomId, userId, publicKey: exportedPub });
       } else {
         addSystemMessage("Joined room. Waiting for secure key exchange...");
+        // If I'm not the creator, I need to announce my presence and wait for the creator to send me the room key
+        const exportedPub = await exportKey(identityKey.publicKey);
+        socket.emit("public-key", { roomId, userId, publicKey: exportedPub });
       }
       
       // Update users list and map
@@ -160,9 +168,6 @@ export default function Chat({ roomId, userId, username, saveMessages, onLeave }
       const newMap = new Map();
       userList.forEach(u => newMap.set(u.userId, u.username));
       setUserMap(newMap);
-
-      const exportedPub = await exportKey(identityKey.publicKey);
-      socket.emit("public-key", { roomId, userId, publicKey: exportedPub });
     });
 
     socket.on("user-connected", (data: {userId: string, username: string}) => {
@@ -311,9 +316,14 @@ export default function Chat({ roomId, userId, username, saveMessages, onLeave }
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || !roomKey || !socket) return;
+    if (!input.trim() || !socket) return;
     
-    const content: MessageContent = { 
+    if (!roomKey) {
+        addSystemMessage("⚠️ Waiting for secure encryption key...");
+        return;
+    }
+    
+    const content: MessageContent = {  
         type: "text", 
         text: input,
         expiresAt: expirationTime > 0 ? Date.now() + expirationTime : undefined
@@ -429,182 +439,260 @@ export default function Chat({ roomId, userId, username, saveMessages, onLeave }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-black text-white">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900 sticky top-0 z-10">
-        <div className="flex items-center gap-2 max-w-[40%]">
-            {isEncrypted ? <Lock className="text-green-500 w-5 h-5 shrink-0" /> : <ShieldAlert className="text-yellow-500 w-5 h-5 shrink-0" />}
-            <span className="font-mono text-sm text-gray-400 truncate hidden sm:block">Room: {roomId}</span>
-            <span className="font-mono text-sm text-gray-400 truncate sm:hidden">...{roomId.slice(-4)}</span>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-4">
-            <button onClick={webNuke} className="p-2 hover:bg-red-950 rounded-full text-red-600 font-bold border border-red-900 hidden sm:block" title="WEB NUKE (Admin Only)">
-                <Bomb className="w-5 h-5" />
-            </button>
-            <button onClick={nukeRoom} className="p-2 hover:bg-red-900 rounded-full" title="Nuke Room Data">
-                <Trash2 className="w-5 h-5 text-red-500" />
-            </button>
-            <button onClick={copyInvite} className="p-2 hover:bg-gray-800 rounded-full" title="Copy Invite Link">
-                 <LinkIcon className="w-5 h-5 text-blue-500" />
-            </button>
-            <div className="text-xs text-gray-500 hidden sm:block">{users.length} users</div>
-            <div className="text-xs text-gray-500 sm:hidden">{users.length}</div>
-            <button onClick={onLeave} className="p-2 hover:bg-red-900 rounded-full"><X className="w-5 h-5 text-red-500" /></button>
-        </div>
+    <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
+      {/* Sidebar - Users List (Discord Style) */}
+      <div className="w-64 bg-gray-900 flex-shrink-0 flex flex-col border-r border-gray-800 hidden md:flex">
+          <div className="p-4 border-b border-gray-800 font-bold text-gray-200 flex items-center gap-2">
+              <Lock className="w-4 h-4 text-green-500" />
+              <span className="truncate">{roomId}</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              <div className="text-xs font-bold text-gray-500 uppercase mb-2 px-2">Online — {users.length}</div>
+              {users.map(u => (
+                  <div key={u} className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-gray-800 group cursor-pointer">
+                      <div className="relative">
+                          <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold">
+                              {(userMap.get(u) || u.slice(0, 2)).toUpperCase().slice(0, 2)}
+                          </div>
+                          <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-gray-900 rounded-full"></div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-300 truncate group-hover:text-white">
+                              {userMap.get(u) || u.slice(0, 8)}
+                              {u === userId && <span className="ml-1 text-xs text-gray-500">(You)</span>}
+                          </div>
+                      </div>
+                  </div>
+              ))}
+          </div>
+          <div className="p-3 bg-gray-925 border-t border-gray-800">
+             <div className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-800 cursor-pointer" title="Your Profile">
+                <div className="w-8 h-8 rounded-full bg-green-700 flex items-center justify-center font-bold text-xs">
+                    {username.slice(0,2).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold truncate">{username}</div>
+                    <div className="text-[10px] text-gray-400 truncate">#{userId.slice(0, 4)}</div>
+                </div>
+                <button onClick={onLeave} className="p-1 hover:bg-gray-700 rounded text-red-400">
+                    <X className="w-4 h-4" />
+                </button>
+             </div>
+          </div>
       </div>
 
-      {/* Call UI */}
-      {inCall && (
-        <div className="h-64 bg-gray-900 flex items-center justify-center border-b border-gray-800 relative">
-            <video ref={localVideoRef} autoPlay muted className="absolute bottom-2 right-2 w-32 h-24 bg-black border border-gray-700 rounded object-cover z-10" />
-            <video ref={remoteVideoRef} autoPlay className="w-full h-full object-contain" />
-        </div>
-      )}
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col min-w-0 bg-gray-700">
+          {/* Header */}
+          <div className="h-12 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900 shadow-sm">
+            <div className="flex items-center gap-2">
+                <div className="md:hidden" onClick={onLeave}>
+                    <X className="w-5 h-5 text-gray-400" />
+                </div>
+                <span className="font-bold text-gray-200 flex items-center gap-2">
+                    <span className="text-gray-500">#</span> 
+                    <span className="truncate max-w-[150px] sm:max-w-md">{roomId}</span>
+                </span>
+                {isEncrypted && <span className="text-[10px] bg-green-900/50 text-green-400 px-1.5 py-0.5 rounded border border-green-900">E2EE</span>}
+            </div>
+            
+            <div className="flex items-center gap-3">
+                 <button onClick={webNuke} className="text-gray-400 hover:text-red-500 hidden sm:block" title="WEB NUKE">
+                    <Bomb className="w-5 h-5" />
+                </button>
+                <button onClick={nukeRoom} className="text-gray-400 hover:text-red-500" title="Nuke Channel">
+                    <Trash2 className="w-5 h-5" />
+                </button>
+                <button onClick={copyInvite} className="text-gray-400 hover:text-white" title="Invite">
+                     <LinkIcon className="w-5 h-5" />
+                </button>
+                 <div className="md:hidden text-gray-400">
+                    <span className="text-xs">{users.length}</span>
+                </div>
+            </div>
+          </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg) => (
-            <div key={msg.id} className={clsx("flex flex-col", msg.senderId === userId ? "items-end" : "items-start")}>
-                {msg.type === "system" ? (
-                    <div className="text-xs text-gray-600 text-center w-full my-2 font-mono">{msg.content.text}</div>
-                ) : (
-                    <>
-                    {msg.senderId !== userId && (
-                        <span className="text-xs text-gray-500 ml-1 mb-1">
-                            {userMap.get(msg.senderId) || "Unknown"}
-                        </span>
-                    )}
-                    <div className={clsx(
-                        "max-w-[80%] rounded-lg px-4 py-2 break-words",
-                        msg.senderId === userId ? "bg-green-700 text-white" : "bg-gray-800 text-gray-200"
-                    )}>
-                        {msg.content.type === "text" && <span>{msg.content.text}</span>}
-                        {msg.content.type === "file" && (
-                            <div className="flex flex-col items-center gap-2">
-                                {msg.content.mime?.startsWith("image/") ? (
-                                    <img src={msg.content.data} alt={msg.content.name} className="max-w-full rounded" />
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <FileUp className="w-6 h-6" />
-                                        <span className="text-sm underline truncate max-w-[150px]">{msg.content.name}</span>
-                                    </div>
-                                )}
-                                <a href={msg.content.data} download={msg.content.name} className="flex items-center gap-1 text-xs text-gray-300 hover:text-white mt-1">
-                                    <Download className="w-3 h-3" /> Download
-                                </a>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#313338] custom-scrollbar">
+            {messages.map((msg, idx) => {
+                const isSystem = msg.type === "system";
+                const isMe = msg.senderId === userId;
+                const showHeader = idx === 0 || messages[idx-1].senderId !== msg.senderId || (msg.timestamp - messages[idx-1].timestamp > 60000);
+
+                if (isSystem) {
+                     return (
+                        <div key={msg.id} className="flex items-center justify-center my-4">
+                            <div className="bg-gray-800/50 px-3 py-1 rounded-full text-xs text-gray-400 border border-gray-700/50 flex items-center gap-2">
+                                <ShieldAlert className="w-3 h-3" />
+                                {msg.content.text}
+                            </div>
+                        </div>
+                     );
+                }
+
+                return (
+                    <div key={msg.id} className={clsx("group flex gap-4 px-2 hover:bg-black/5 py-0.5 -mx-2 rounded", showHeader ? "mt-4" : "")}>
+                        {showHeader ? (
+                            <div className="w-10 h-10 rounded-full bg-gray-600 flex-shrink-0 flex items-center justify-center text-sm font-bold text-white mt-0.5 cursor-pointer hover:opacity-80">
+                                {(userMap.get(msg.senderId) || "?").slice(0, 2).toUpperCase()}
+                            </div>
+                        ) : (
+                            <div className="w-10 flex-shrink-0 text-[10px] text-gray-500 opacity-0 group-hover:opacity-100 text-right pr-1 select-none pt-1">
+                                {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                             </div>
                         )}
+                        
+                        <div className="flex-1 min-w-0">
+                            {showHeader && (
+                                <div className="flex items-baseline gap-2">
+                                    <span className="font-medium text-gray-100 hover:underline cursor-pointer">
+                                        {userMap.get(msg.senderId) || "Unknown"}
+                                    </span>
+                                    <span className="text-xs text-gray-500 ml-1">
+                                        {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString()}
+                                    </span>
+                                </div>
+                            )}
+                            <div className={clsx("text-gray-300 whitespace-pre-wrap leading-relaxed", !showHeader && "mt-0.5")}>
+                                {msg.content.type === "text" && msg.content.text}
+                                {msg.content.type === "file" && (
+                                    <div className="mt-2 inline-flex flex-col bg-gray-900 rounded border border-gray-700 overflow-hidden max-w-sm">
+                                        {msg.content.mime?.startsWith("image/") ? (
+                                            <img src={msg.content.data} alt={msg.content.name} className="max-w-full max-h-64 object-contain bg-black" />
+                                        ) : (
+                                            <div className="p-4 flex items-center gap-3">
+                                                <FileUp className="w-8 h-8 text-blue-400" />
+                                                <div className="overflow-hidden">
+                                                    <div className="text-sm font-medium truncate">{msg.content.name}</div>
+                                                    <div className="text-xs text-gray-500 uppercase">{msg.content.mime?.split('/')[1]}</div>
+                                                </div>
+                                            </div>
+                                        )}
+                                        <a href={msg.content.data} download={msg.content.name} className="block w-full bg-gray-800 hover:bg-gray-700 p-2 text-center text-sm text-blue-400 font-medium transition-colors">
+                                            Download File
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                    </>
-                )}
-            </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
+                );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
 
-      {/* Input */}
-      <div className="p-4 bg-gray-900 border-t border-gray-800 flex gap-2 items-center pb-safe">
-        <button 
-            onClick={() => {
-                const target = users.find(u => u !== userId);
-                if (target) startCall(target);
-                else addSystemMessage("No users to call.");
-            }} 
-            className="p-2 text-gray-400 hover:text-white hidden sm:block"
-            title="Call (First User)"
-        >
-            <Video className="w-5 h-5" />
-        </button>
+          {/* Input Area */}
+          <div className="p-4 bg-[#313338] px-4 pb-6 relative z-[60]">
+              <div className={`bg-[#383a40] rounded-lg p-2 flex items-center gap-2 relative ${!isEncrypted ? 'border border-yellow-600/50' : ''}`}>
+                   <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-2 text-gray-400 hover:text-gray-200 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50"
+                    >
+                        <div className="bg-gray-400 rounded-full w-5 h-5 flex items-center justify-center text-[#383a40] font-bold text-xs">+</div>
+                   </button>
+                   
+                   <input 
+                        type="text" 
+                        value={input} 
+                        onChange={e => setInput(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                        className="flex-1 bg-transparent border-none outline-none text-gray-200 placeholder-gray-500 py-2"
+                        placeholder={`Message #${roomId.slice(0, 8)}...`}
+                    />
 
-        <button
-            onClick={() => {
-                const times = [0, 10000, 60000, 3600000]; // Off, 10s, 1m, 1h
-                const nextIndex = (times.indexOf(expirationTime) + 1) % times.length;
-                setExpirationTime(times[nextIndex]);
-                const labels = ["Off", "10s", "1m", "1h"];
-                addSystemMessage(`Message expiration set to: ${labels[nextIndex]}`);
-            }}
-            className={clsx("p-2 hover:text-white", expirationTime > 0 ? "text-red-500" : "text-gray-400")}
-            title={`Expiration: ${expirationTime === 0 ? "Off" : expirationTime / 1000 + "s"}`}
-        >
-            <Timer className="w-5 h-5" />
-        </button>
-
-        <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            onChange={handleFileSelect} 
-        />
-        <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-gray-400 hover:text-white"
-            title="Send File"
-        >
-            <FileUp className="w-5 h-5" />
-        </button>
-        
-        <input 
-            type="text" 
-            value={input} 
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && sendMessage()}
-            className="flex-1 bg-black border border-gray-700 rounded-full px-4 py-2 focus:outline-none focus:border-green-500 text-sm"
-            placeholder={isEncrypted ? "Message..." : "Waiting..."}
-            disabled={!isEncrypted}
-        />
-        <button 
-            onClick={sendMessage} 
-            disabled={!isEncrypted}
-            className="p-2 bg-green-600 rounded-full text-white hover:bg-green-500 disabled:opacity-50"
-        >
-            <Send className="w-5 h-5" />
-        </button>
+                    <div className="flex items-center gap-2 pr-2">
+                         <button
+                            onClick={() => {
+                                const times = [0, 10000, 60000, 3600000];
+                                const nextIndex = (times.indexOf(expirationTime) + 1) % times.length;
+                                setExpirationTime(times[nextIndex]);
+                            }}
+                            className={clsx("p-1.5 rounded hover:bg-gray-700 transition-colors", expirationTime > 0 ? "text-red-500" : "text-gray-400")}
+                            title="Ephemeral Messages"
+                        >
+                            <Timer className="w-5 h-5" />
+                        </button>
+                        {/* Video Call Button - Hidden on Mobile */}
+                         <button 
+                            onClick={() => {
+                                const target = users.find(u => u !== userId);
+                                if (target) startCall(target);
+                            }} 
+                            className="hidden sm:block p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                        >
+                            <Video className="w-5 h-5" />
+                        </button>
+                    </div>
+              </div>
+              <div className="text-[10px] text-gray-500 mt-1 text-right">
+                  {isEncrypted ? "🔒 End-to-End Encrypted" : "⚠️ Establishing Secure Connection..."}
+              </div>
+          </div>
       </div>
       
-      {/* Anti-Screenshot Overlay */}
+      {/* Hidden Inputs/Overlays */}
+      <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
       <div className="fixed inset-0 pointer-events-none z-50 bg-black mix-blend-multiply opacity-0" />
+      
+      {/* Call Overlay */}
+      {inCall && (
+        <div className="fixed bottom-4 right-4 w-80 bg-gray-900 rounded-lg shadow-2xl border border-gray-800 overflow-hidden z-50 flex flex-col">
+            <div className="relative h-48 bg-black">
+                 <video ref={remoteVideoRef} autoPlay className="w-full h-full object-contain" />
+                 <video ref={localVideoRef} autoPlay muted className="absolute bottom-2 right-2 w-24 h-16 bg-gray-800 border border-gray-700 rounded object-cover" />
+            </div>
+            <div className="p-3 flex justify-center bg-gray-800">
+                <button onClick={() => {
+                    // Close call logic needs to be cleaner in real app
+                    window.location.reload(); 
+                }} className="bg-red-600 p-2 rounded-full text-white hover:bg-red-700">
+                    <Phone className="w-5 h-5 rotate-[135deg]" />
+                </button>
+            </div>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       {confirmation.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="bg-gray-900 border border-red-900 rounded-lg p-6 max-w-sm w-full space-y-4 shadow-2xl">
-                <div className="flex items-center gap-3 text-red-500">
-                    <ShieldAlert className="w-8 h-8" />
-                    <h3 className="text-lg font-bold">Security Verification</h3>
+            <div className="bg-[#313338] rounded-lg p-0 w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                <div className="p-6">
+                    <h3 className="text-xl font-bold text-gray-100 mb-2">
+                        {confirmation.type === "nuke" ? "Nuke Channel?" : "Web Nuke (Admin)"}
+                    </h3>
+                    <p className="text-gray-400 text-sm mb-4">
+                        {confirmation.type === "nuke" 
+                        ? "Are you sure you want to clear all messages in this room? This action cannot be undone." 
+                        : "WARNING: This will wipe ALL rooms and disconnect ALL users."}
+                    </p>
+                    <div className="bg-gray-900/50 p-2 rounded border border-gray-800 mb-4">
+                         <label className="text-xs text-gray-500 uppercase block mb-1">
+                            Type <span className="font-mono text-red-400 font-bold">{confirmation.type === "nuke" ? "DELETE" : "CONFIRM"}</span>
+                        </label>
+                        <input 
+                            type="text" 
+                            value={confirmInput}
+                            onChange={(e) => setConfirmInput(e.target.value)}
+                            className="w-full bg-gray-900 border border-black rounded px-2 py-1 text-gray-200 outline-none focus:border-red-500 transition-colors font-mono"
+                            autoFocus
+                        />
+                    </div>
                 </div>
-                <p className="text-gray-300 text-sm">
-                    {confirmation.type === "nuke" 
-                        ? "Are you sure you want to NUKE this room? This will permanently delete all messages for everyone." 
-                        : "WARNING: WEB NUKE. This will wipe ALL rooms, disconnect ALL users, and reset the server."}
-                </p>
-                <div className="space-y-2">
-                    <label className="text-xs text-gray-500 uppercase">
-                        Type <span className="font-mono text-white font-bold">{confirmation.type === "nuke" ? "DELETE" : "CONFIRM"}</span> to continue:
-                    </label>
-                    <input 
-                        type="text" 
-                        value={confirmInput}
-                        onChange={(e) => setConfirmInput(e.target.value)}
-                        className="w-full bg-black border border-gray-700 rounded px-3 py-2 text-white focus:border-red-500 outline-none font-mono"
-                        placeholder={confirmation.type === "nuke" ? "DELETE" : "CONFIRM"}
-                    />
-                </div>
-                <div className="flex gap-3 justify-end pt-2">
-                    <button 
+                <div className="bg-[#2b2d31] p-4 flex justify-end gap-3">
+                     <button 
                         onClick={() => {
                             setConfirmation({ ...confirmation, isOpen: false });
                             setConfirmInput("");
                         }}
-                        className="px-4 py-2 text-gray-400 hover:text-white text-sm"
+                        className="px-4 py-2 text-gray-300 hover:underline text-sm font-medium"
                     >
                         Cancel
                     </button>
                     <button 
                         onClick={handleConfirm}
-                        className="px-4 py-2 bg-red-900 hover:bg-red-800 text-white rounded text-sm font-bold"
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded text-sm font-medium transition-colors"
                     >
-                        {confirmation.type === "nuke" ? "NUKE ROOM" : "EXECUTE"}
+                        {confirmation.type === "nuke" ? "Nuke Channel" : "Execute Order 66"}
                     </button>
                 </div>
             </div>

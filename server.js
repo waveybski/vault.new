@@ -45,6 +45,12 @@ app.prepare().then(() => {
   io.on("connection", (socket) => {
     // console.log("Client connected:", socket.id); // Removed for data minimization
 
+    // Check if room exists
+    socket.on("check-room", (roomId, callback) => {
+        const exists = roomUsers.has(roomId);
+        callback(exists);
+    });
+
     socket.on("join-room", (roomId, userId, username, callback) => {
       socket.join(roomId);
       usernames.set(socket.id, username);
@@ -64,7 +70,8 @@ app.prepare().then(() => {
       
       // Send acknowledgement with room info and current users
       if (callback) {
-        const isCreator = size === 1;
+        // Use logical user count instead of socket count to handle refreshes (ghost sockets)
+        const isCreator = users.length === 1;
         
         if (isCreator) {
             // Log new room to Neon DB
