@@ -339,10 +339,10 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
     // If we have a key, we encrypt. If not, we send as plain text (or handle gracefully).
     // Given the app is "Secure Chat", sending plaintext might be bad, BUT the user insisted.
     
-    let payload = "";
+    let payload: string | { iv: number[]; data: number[] } = "";
     let isEncryptedPayload = false;
 
-    const content: MessageContent = { 
+    const content: MessageContent = {  
         type: "text", 
         text: input,
         expiresAt: expirationTime > 0 ? Date.now() + expirationTime : undefined
