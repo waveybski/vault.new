@@ -10,12 +10,14 @@ import { io } from "socket.io-client";
 
 interface SavedRoom {
   id: string;
+  name?: string; // Optional custom name
   lastActive: number;
 }
 
 function ChatEntry() {
   const [joined, setJoined] = useState(false);
   const [roomId, setRoomId] = useState("");
+  const [roomName, setRoomName] = useState(""); // For new room creation
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState(""); // Initialize empty
   const [savedRooms, setSavedRooms] = useState<SavedRoom[]>([]);
@@ -81,25 +83,32 @@ function ChatEntry() {
       
       // Always save room ID to history
       const newSaved = savedRooms.filter(r => r.id !== id);
-      newSaved.unshift({ id, lastActive: Date.now() });
+      // Preserve existing name if known, otherwise use ID
+      const existing = savedRooms.find(r => r.id === id);
+      const name = existing?.name || id;
+      
+      newSaved.unshift({ id, name, lastActive: Date.now() });
       setSavedRooms(newSaved);
       localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
       
       setRoomId(id);
+      setRoomName(name); // Pass name to chat
       setJoined(true);
   };
 
   const handleCreate = () => {
       if (!username) return;
       const newRoomId = uuidv4();
+      const name = roomName.trim() || "General"; // Default name if empty
       
       // No need to check existence for new room
       const newSaved = savedRooms.filter(r => r.id !== newRoomId);
-      newSaved.unshift({ id: newRoomId, lastActive: Date.now() });
+      newSaved.unshift({ id: newRoomId, name, lastActive: Date.now() });
       setSavedRooms(newSaved);
       localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
 
       setRoomId(newRoomId);
+      // setRoomName is already set by input
       setJoined(true);
   };
 
@@ -127,7 +136,7 @@ function ChatEntry() {
   };
 
   if (joined) {
-    return <Chat roomId={roomId} userId={userId} username={username} saveMessages={saveMessages} onLeave={() => setJoined(false)} />;
+    return <Chat roomId={roomId} roomName={roomName || roomId} userId={userId} username={username} saveMessages={saveMessages} onLeave={() => setJoined(false)} />;
   }
 
   return (
@@ -155,12 +164,12 @@ function ChatEntry() {
                     {/* Discord-like pill for active state */}
                     {roomId === room.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded-r-full"></div>}
                     
-                    <div className="w-12 h-12 rounded-[24px] group-hover:rounded-[16px] bg-[#313338] flex items-center justify-center transition-all duration-200 flex-shrink-0 text-green-500 overflow-hidden">
-                        #
+                    <div className="w-12 h-12 rounded-[24px] group-hover:rounded-[16px] bg-[#313338] flex items-center justify-center transition-all duration-200 flex-shrink-0 text-green-500 overflow-hidden font-bold">
+                        {room.name ? room.name.slice(0, 2).toUpperCase() : "#"}
                     </div>
                     
                     <div className="hidden md:flex flex-1 min-w-0 flex-col">
-                        <span className="font-medium truncate text-gray-300 group-hover:text-white">{room.id}</span>
+                        <span className="font-medium truncate text-gray-300 group-hover:text-white">{room.name || room.id}</span>
                     </div>
 
                     <button 
@@ -209,62 +218,79 @@ function ChatEntry() {
           </div>
           
           {/* Center Content */}
-          <div className="flex-1 flex items-center justify-center p-4">
-               <div className="w-full max-w-lg text-center">
-                    <div className="mb-8 flex justify-center">
-                        <div className="w-24 h-24 bg-[#2b2d31] rounded-3xl flex items-center justify-center shadow-xl">
-                            <span className="text-4xl">🔐</span>
-                        </div>
+          <div className="flex-1 flex items-center justify-center p-4 bg-[url('https://core-normal.traeapi.us/api/ide/v1/text_to_image?prompt=dark+cyberpunk+abstract+network+nodes+minimalist+background&image_size=landscape_16_9')] bg-cover bg-center">
+               <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+               <div className="w-full max-w-2xl relative z-10">
+                    <div className="text-center mb-10">
+                        <h1 className="text-5xl font-extrabold text-white mb-4 tracking-tight drop-shadow-lg">Vault</h1>
+                        <p className="text-xl text-gray-300 font-light">Secure. Ephemeral. Anonymous.</p>
                     </div>
-                    <h2 className="text-2xl font-bold text-white mb-2">Welcome to Vault</h2>
-                    <p className="text-gray-400 mb-8">Secure, ephemeral, anonymous chat. No logs, no traces.</p>
                     
-                    <div className="space-y-4 text-left bg-[#2b2d31] p-6 rounded-lg shadow-lg">
-                        <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase mb-1.5 block">Display Name <span className="text-red-500">*</span></label>
+                    <div className="bg-[#2b2d31]/90 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-gray-700/50">
+                        <div className="mb-8">
+                            <label className="text-sm font-bold text-gray-300 uppercase mb-2 block tracking-wide">Identity</label>
                             <input
                                 type="text"
-                                className="w-full bg-[#1e1f22] text-white p-2.5 rounded border-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all font-medium text-lg placeholder-gray-600"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                placeholder="How should we call you?"
+                                placeholder="Enter your display name..."
                             />
                         </div>
-                        
-                        <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase mb-1.5 block">Room ID</label>
-                            <div className="flex gap-2">
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            {/* Join Column */}
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <div className="h-px flex-1 bg-gray-700"></div>
+                                    <span className="text-gray-400 text-sm font-semibold uppercase">Join Existing</span>
+                                    <div className="h-px flex-1 bg-gray-700"></div>
+                                </div>
                                 <input
                                     type="text"
-                                    className="flex-1 bg-[#1e1f22] text-white p-2.5 rounded border-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder-gray-600"
                                     value={roomId}
                                     onChange={(e) => setRoomId(e.target.value)}
-                                    placeholder="Enter an ID to join..."
+                                    placeholder="Paste Room ID / Invite Code"
                                 />
                                 <button
                                     onClick={() => handleJoin(roomId)}
                                     disabled={!roomId || !username}
-                                    className="bg-[#5865F2] hover:bg-[#4752c4] text-white px-6 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="w-full bg-[#5865F2] hover:bg-[#4752c4] text-white py-3 rounded-lg font-bold transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-blue-500/20"
                                 >
-                                    Join
+                                    Join Room
+                                </button>
+                            </div>
+
+                            {/* Create Column */}
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <div className="h-px flex-1 bg-gray-700"></div>
+                                    <span className="text-gray-400 text-sm font-semibold uppercase">Create New</span>
+                                    <div className="h-px flex-1 bg-gray-700"></div>
+                                </div>
+                                <input
+                                    type="text"
+                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder-gray-600"
+                                    value={roomName}
+                                    onChange={(e) => setRoomName(e.target.value)}
+                                    placeholder="Room Name (Optional)"
+                                />
+                                <button
+                                    onClick={handleCreate}
+                                    disabled={!username}
+                                    className="w-full bg-[#248046] hover:bg-[#1a6334] text-white py-3 rounded-lg font-bold transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-green-500/20"
+                                >
+                                    Create Secure Room
                                 </button>
                             </div>
                         </div>
                         
-                        {error && <div className="text-red-400 text-xs mt-2">{error}</div>}
-                        
-                        <div className="relative py-2">
-                            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-700"></div></div>
-                            <div className="relative flex justify-center"><span className="bg-[#2b2d31] px-2 text-xs text-gray-500 uppercase">Or</span></div>
-                        </div>
-                        
-                        <button
-                            onClick={handleCreate}
-                            disabled={!username}
-                            className="w-full bg-[#248046] hover:bg-[#1a6334] text-white p-2.5 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                        >
-                            Create New Secure Room
-                        </button>
+                        {error && (
+                            <div className="mt-6 p-3 bg-red-500/10 border border-red-500/50 rounded text-red-400 text-sm text-center font-medium animate-pulse">
+                                {error}
+                            </div>
+                        )}
                     </div>
                </div>
           </div>
