@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vault - Secure Ephemeral Chat
 
-## Getting Started
+Vault is an end-to-end encrypted, anonymous, and ephemeral chat application. It ensures your conversations remain private and secure, with no permanent logs stored on the server.
 
-First, run the development server:
+## 🔗 Public Links
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **GitHub Repository:** [https://github.com/waveybski/vault.new](https://github.com/waveybski/vault.new)
+- **Live Demo (Local):** [http://localhost:3000](http://localhost:3000)
+- **Admin Log:** [http://localhost:3000/admin](http://localhost:3000/admin)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🚀 Features
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **End-to-End Encryption:** Messages are encrypted on the client side using per-room symmetric keys derived via ECDH key exchange.
+- **Ephemeral Messaging:** Messages are stored in RAM only and wiped upon server restart or room "Nuke".
+- **Neon DB Integration:** Tracks room creation metadata (Room ID & Timestamp) for analytics without logging message content.
+- **Nuke & Web Nuke:**
+  - 🗑️ **Room Nuke:** Clears all messages for all users in a specific room.
+  - 💣 **Web Nuke:** Admin-only feature to wipe ALL rooms and disconnect ALL users.
+- **Persistence:**
+  - **Saved Rooms:** Automatically remembers joined room IDs.
+  - **Message Saving (Optional):** Toggleable setting to persist chat history locally on your device.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🛠️ Tech Stack
 
-## Learn More
+- **Frontend:** Next.js (React), Tailwind CSS
+- **Realtime:** Socket.IO, WebRTC (PeerJS)
+- **Database:** Neon (PostgreSQL) - *Metadata only*
+- **Security:** Web Crypto API (ECDH, AES-GCM)
 
-To learn more about Next.js, take a look at the following resources:
+## 📦 Getting Started
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/waveybski/vault.new.git
+    cd vault.new
+    ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+2.  **Install dependencies:**
+    ```bash
+    npm install
+    ```
 
-## Deploy on Vercel
+3.  **Run the development server:**
+    ```bash
+    npm run dev
+    ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+4.  Open [http://localhost:3000](http://localhost:3000) with your browser.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## ⚠️ Security Note
+
+While Vault uses strong encryption, it is a proof-of-concept application. Do not use it for critical sensitive data without a thorough security audit.
