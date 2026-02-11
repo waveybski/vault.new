@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSocket } from "@/hooks/useSocket";
 import { usePeer } from "@/hooks/usePeer";
 import {
@@ -15,9 +15,8 @@ import {
   encryptKey,
   decryptKey,
 } from "@/lib/encryption";
-import { Send, Phone, Video, X, Lock, ShieldAlert, FileUp, Link as LinkIcon, Download, Timer, Bomb, Trash2 } from "lucide-react";
+import { Phone, Video, X, Lock, ShieldAlert, FileUp, Link as LinkIcon, Timer, Bomb, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
 
 interface MessageContent {
   type: "text" | "file";
@@ -92,7 +91,7 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
   }, []);
   
   // Video Call State
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  // const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [inCall, setInCall] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -140,6 +139,23 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
   }, []);
 
   const [hasJoined, setHasJoined] = useState(false);
+
+  const addSystemMessage = (text: string) => {
+    setMessages(prev => {
+        // Prevent duplicate system messages within 1 second
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg?.type === "system" && lastMsg.content.text === text && Date.now() - lastMsg.timestamp < 1000) {
+            return prev;
+        }
+        return [...prev, {
+            id: Math.random().toString(),
+            senderId: "system",
+            content: { type: "text", text },
+            timestamp: Date.now(),
+            type: "system"
+        }];
+    });
+  };
 
   useEffect(() => {
     if (!socket || !identityKey || hasJoined) return;
@@ -301,12 +317,12 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
             if (localVideoRef.current) localVideoRef.current.srcObject = stream;
             call.answer(stream);
             call.on("stream", (remote) => {
-                setRemoteStream(remote);
+                // setRemoteStream(remote);
                 if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remote;
             });
             call.on("close", () => {
                 setInCall(false);
-                setRemoteStream(null);
+                // setRemoteStream(null);
             });
         });
     });
@@ -319,12 +335,12 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
         const call = peer.call(targetUserId, stream);
         setInCall(true);
         call.on("stream", (remote) => {
-            setRemoteStream(remote);
+            // setRemoteStream(remote);
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remote;
         });
         call.on("close", () => {
             setInCall(false);
-            setRemoteStream(null);
+            // setRemoteStream(null);
         });
     });
   };
@@ -455,23 +471,6 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const addSystemMessage = (text: string) => {
-    setMessages(prev => {
-        // Prevent duplicate system messages within 1 second
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg?.type === "system" && lastMsg.content.text === text && Date.now() - lastMsg.timestamp < 1000) {
-            return prev;
-        }
-        return [...prev, {
-            id: Math.random().toString(),
-            senderId: "system",
-            content: { type: "text", text },
-            timestamp: Date.now(),
-            type: "system"
-        }];
-    });
-  };
-
   const copyInvite = () => {
       const url = `${window.location.origin}?room=${roomId}`;
       navigator.clipboard.writeText(url);
@@ -584,7 +583,7 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#313338] custom-scrollbar">
             {messages.map((msg, idx) => {
                 const isSystem = msg.type === "system";
-                const isMe = msg.senderId === userId;
+                // const isMe = msg.senderId === userId;
                 const showHeader = idx === 0 || messages[idx-1].senderId !== msg.senderId || (msg.timestamp - messages[idx-1].timestamp > 60000);
 
                 if (isSystem) {
@@ -626,6 +625,7 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
                                 {msg.content.type === "file" && (
                                     <div className="mt-2 inline-flex flex-col bg-gray-900 rounded border border-gray-700 overflow-hidden max-w-sm">
                                         {msg.content.mime?.startsWith("image/") ? (
+                                            /* eslint-disable-next-line @next/next/no-img-element */
                                             <img src={msg.content.data} alt={msg.content.name} className="max-w-full max-h-64 object-contain bg-black" />
                                         ) : (
                                             <div className="p-4 flex items-center gap-3">

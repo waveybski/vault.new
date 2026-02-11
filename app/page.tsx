@@ -1,11 +1,11 @@
 
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import Chat from "@/components/Chat";
-import { Clock, Trash2, Settings, X as CloseIcon } from "lucide-react";
+import { Clock, Settings, X as CloseIcon } from "lucide-react";
 import { io } from "socket.io-client";
 
 interface SavedRoom {
@@ -86,6 +86,7 @@ function ChatEntry() {
       // Preserve existing name if known, otherwise use ID
       const existing = savedRooms.find(r => r.id === id);
       const name = existing?.name || id;
+      // const timestamp = new Date().getTime();
       
       newSaved.unshift({ id, name, lastActive: Date.now() });
       setSavedRooms(newSaved);
@@ -103,6 +104,7 @@ function ChatEntry() {
       
       // No need to check existence for new room
       const newSaved = savedRooms.filter(r => r.id !== newRoomId);
+      // const timestamp = new Date().getTime(); // Duplicate variable removed
       newSaved.unshift({ id: newRoomId, name, lastActive: Date.now() });
       setSavedRooms(newSaved);
       localStorage.setItem("vault_rooms", JSON.stringify(newSaved));

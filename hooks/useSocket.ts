@@ -12,12 +12,17 @@ export const useSocket = () => {
       addTrailingSlash: false,
     });
 
+    if (!socketIo.connected) {
+      socketIo.connect();
+    }
+
     setSocket(socketIo);
 
     return () => {
-      socketIo.disconnect();
+      // Don't disconnect here to keep connection alive across navigation
+      // socketIo.disconnect();
     };
-  }, []);
+  }, []); // Run once on mount
 
   return socket;
 };

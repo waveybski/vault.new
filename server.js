@@ -1,4 +1,5 @@
 
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { createServer } = require("http");
 const { parse } = require("url");
 const next = require("next");
