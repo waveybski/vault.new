@@ -39,13 +39,14 @@ interface Message {
 
 interface ChatProps {
   roomId: string;
+  roomName?: string; // Optional custom name
   userId: string;
   username: string;
   saveMessages: boolean;
   onLeave: () => void;
 }
 
-export default function Chat({ roomId, userId, username, saveMessages, onLeave }: ChatProps) {
+export default function Chat({ roomId, roomName, userId, username, saveMessages, onLeave }: ChatProps) {
   const socket = useSocket();
   const peer = usePeer(userId);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -511,7 +512,7 @@ export default function Chat({ roomId, userId, username, saveMessages, onLeave }
       <div className="w-64 bg-gray-900 flex-shrink-0 flex flex-col border-r border-gray-800 hidden md:flex">
           <div className="p-4 border-b border-gray-800 font-bold text-gray-200 flex items-center gap-2">
               <Lock className="w-4 h-4 text-green-500" />
-              <span className="truncate">{roomId}</span>
+              <span className="truncate">{roomName || roomId}</span>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
               <div className="text-xs font-bold text-gray-500 uppercase mb-2 px-2">Online — {users.length}</div>
@@ -558,7 +559,7 @@ export default function Chat({ roomId, userId, username, saveMessages, onLeave }
                 </div>
                 <span className="font-bold text-gray-200 flex items-center gap-2">
                     <span className="text-gray-500">#</span> 
-                    <span className="truncate max-w-[150px] sm:max-w-md">{roomId}</span>
+                    <span className="truncate max-w-[150px] sm:max-w-md">{roomName || roomId}</span>
                 </span>
                 {isEncrypted && <span className="text-[10px] bg-green-900/50 text-green-400 px-1.5 py-0.5 rounded border border-green-900">E2EE</span>}
             </div>
