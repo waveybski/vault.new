@@ -123,20 +123,14 @@ function ChatEntry() {
       const socket = io({ path: "/socket.io", addTrailingSlash: false });
       socketRef.current = socket;
 
-      // Force update user state before emitting (closure issue fix)
-      // Actually, we pass effectiveUserId directly to emit, so state update lag shouldn't matter for the emit itself.
-      // But we need to ensure finalizeJoin uses the correct ID.
-
-      socket.emit("join-room", id, effectiveUserId, effectiveUsername, effectiveDisplayName, (response: any) => {
-           // This callback runs if immediate entry is allowed or if we get room info
-           if (response) {
-               // We must pass the EFFECTIVE credentials to finalizeJoin, not the state ones (which might be stale)
-               
-               // Let's resolve the room name correctly.
-               const resolvedName = existingRoom?.name || roomName || id;
-               
-               finalizeJoin(id, resolvedName, effectiveUserId, effectiveUsername, effectiveDisplayName, response.virtualIP);
-           }
+      socket.on("connect", () => {
+          // Emit join only after connection is established
+          socket.emit("join-room", id, effectiveUserId, effectiveUsername, effectiveDisplayName, (response: any) => {
+               if (response) {
+                   const resolvedName = existingRoom?.name || roomName || id;
+                   finalizeJoin(id, resolvedName, effectiveUserId, effectiveUsername, effectiveDisplayName, response.virtualIP);
+               }
+          });
       });
 
       socket.on("waiting-approval", () => {
@@ -306,9 +300,9 @@ function ChatEntry() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col bg-[#313338] relative">
+      <div className="flex-1 flex flex-col bg-[#313338] relative overflow-y-auto">
           {/* Top Bar */}
-          <div className="h-12 border-b border-[#26272d] flex items-center px-4 shadow-sm bg-[#313338]">
+          <div className="h-12 border-b border-[#26272d] flex-shrink-0 flex items-center px-4 shadow-sm bg-[#313338]">
                <div className="flex items-center gap-2 text-gray-400">
                    <Clock className="w-5 h-5" />
                    <span className="font-bold text-white">Find or Start a Conversation</span>
@@ -316,9 +310,9 @@ function ChatEntry() {
           </div>
           
           {/* Center Content */}
-          <div className="flex-1 flex items-center justify-center p-4 bg-[url('https://core-normal.traeapi.us/api/ide/v1/text_to_image?prompt=dark+cyberpunk+abstract+network+nodes+minimalist+background&image_size=landscape_16_9')] bg-cover bg-center">
+          <div className="flex-1 flex items-center justify-center p-4 bg-[url('https://core-normal.traeapi.us/api/ide/v1/text_to_image?prompt=dark+cyberpunk+abstract+network+nodes+minimalist+background&image_size=landscape_16_9')] bg-cover bg-center min-h-0">
                <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-               <div className="w-full max-w-2xl relative z-10">
+               <div className="w-full max-w-2xl relative z-10 py-8 overflow-y-auto max-h-full custom-scrollbar">
                     <div className="text-center mb-10">
                         <h1 className="text-5xl font-extrabold text-white mb-4 tracking-tight drop-shadow-lg">Vault</h1>
                         <p className="text-xl text-gray-300 font-light">Secure. Ephemeral. Anonymous.</p>

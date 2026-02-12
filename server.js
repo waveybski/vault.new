@@ -106,9 +106,10 @@ app.prepare().then(() => {
           room.pending.push({ userId, username, displayName, socketId: socket.id });
           
           // Notify creator
-          const creatorSocketId = room.users.find(u => u.userId === room.creatorId)?.socketId;
-          if (creatorSocketId) {
-              io.to(creatorSocketId).emit("join-request", { userId, username });
+          // Fix: Ensure we find the CURRENT socket ID for the creator
+          const creatorUser = room.users.find(u => u.userId === room.creatorId);
+          if (creatorUser) {
+              io.to(creatorUser.socketId).emit("join-request", { userId, username });
           }
           
           // Notify user they are waiting
