@@ -33,7 +33,12 @@ app.prepare().then(() => {
     }
   });
 
-  const io = new Server(httpServer);
+  const io = new Server(httpServer, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    }
+  });
   
   // Store usernames: socketId -> username
   const usernames = new Map();
