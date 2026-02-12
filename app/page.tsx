@@ -12,6 +12,8 @@ interface SavedRoom {
   id: string;
   name?: string; // Optional custom name
   lastActive: number;
+  userId?: string; // Saved credentials
+  username?: string; // Saved credentials
 }
 
 function ChatEntry() {
@@ -75,8 +77,22 @@ function ChatEntry() {
   };
 
   const handleJoin = async (id: string = roomId) => {
-      if (!id || !username) return;
+      if (!id) return; // Allow joining without username if saved credential exists
       setError("");
+
+      // Check if we have saved credentials for this room
+      const existingRoom = savedRooms.find(r => r.id === id);
+      const effectiveUserId = existingRoom?.userId || userId || uuidv4();
+      const effectiveUsername = existingRoom?.username || username;
+
+      if (!effectiveUsername) {
+          setError("Please enter a username.");
+          return;
+      }
+      
+      // Update state with effective credentials if we are using saved ones
+      if (effectiveUserId !== userId) setUserId(effectiveUserId);
+      if (effectiveUsername !== username) setUsername(effectiveUsername);
 
       // Relaxed check: Try to join. If room doesn't exist, server will create it.
       // This fixes the issue where invite links fail if the room is empty/ephemeral.
@@ -85,10 +101,10 @@ function ChatEntry() {
       const socket = io({ path: "/socket.io", addTrailingSlash: false });
       socketRef.current = socket;
 
-      socket.emit("join-room", id, userId || uuidv4(), username, (response: any) => {
+      socket.emit("join-room", id, effectiveUserId, effectiveUsername, (response: any) => {
            // This callback runs if immediate entry is allowed or if we get room info
            if (response) {
-               finalizeJoin(id, name || id);
+               finalizeJoin(id, name || id, effectiveUserId, effectiveUsername);
            }
       });
 
@@ -98,7 +114,7 @@ function ChatEntry() {
 
       socket.on("join-approved", () => {
           setIsWaiting(false);
-          finalizeJoin(id, name || id);
+          finalizeJoin(id, name || id, effectiveUserId, effectiveUsername);
       });
 
       socket.on("join-rejected", () => {
@@ -108,14 +124,20 @@ function ChatEntry() {
       });
   };
 
-  const finalizeJoin = (id: string, name: string) => {
+  const finalizeJoin = (id: string, name: string, uid: string, uname: string) => {
       // Always save room ID to history
       const newSaved = savedRooms.filter(r => r.id !== id);
       // Preserve existing name if known, otherwise use ID
       const existing = savedRooms.find(r => r.id === id);
       const finalName = existing?.name || name;
       
-      newSaved.unshift({ id, name: finalName, lastActive: Date.now() });
+      newSaved.unshift({ 
+          id, 
+          name: finalName, 
+          lastActive: Date.now(),
+          userId: uid, 
+          username: uname 
+      });
       setSavedRooms(newSaved);
       localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
       
@@ -133,15 +155,23 @@ function ChatEntry() {
       // Use custom ID if provided, otherwise generate UUID
       const newRoomId = customRoomId.trim() || uuidv4();
       const name = roomName.trim() || newRoomId; // Use ID as name if empty
+      const uid = userId || uuidv4();
       
       // No need to check existence for new room
       const newSaved = savedRooms.filter(r => r.id !== newRoomId);
       // const timestamp = new Date().getTime(); // Duplicate variable removed
-      newSaved.unshift({ id: newRoomId, name, lastActive: Date.now() });
+      newSaved.unshift({ 
+          id: newRoomId, 
+          name, 
+          lastActive: Date.now(),
+          userId: uid,
+          username: username
+      });
       setSavedRooms(newSaved);
       localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
 
       setRoomId(newRoomId);
+      setUserId(uid);
       // setRoomName is already set by input
       setJoined(true);
   };
