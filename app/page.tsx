@@ -86,6 +86,7 @@ function ChatEntry() {
       const effectiveUsername = existingRoom?.username || username;
 
       if (!effectiveUsername) {
+          // If we are joining manually and have no saved credential, we need a username
           setError("Please enter a username.");
           return;
       }
@@ -319,7 +320,7 @@ function ChatEntry() {
                                 />
                                 <button
                                     onClick={() => handleJoin(roomId)}
-                                    disabled={!roomId || !username || isWaiting}
+                                    disabled={!roomId || (!username && !savedRooms.find(r => r.id === roomId)) || isWaiting}
                                     className="w-full bg-[#5865F2] hover:bg-[#4752c4] text-white py-3 rounded-lg font-bold transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-blue-500/20 flex items-center justify-center gap-2"
                                 >
                                     {isWaiting ? <><Loader2 className="w-5 h-5 animate-spin" /> Requesting Access...</> : "Join Room"}
