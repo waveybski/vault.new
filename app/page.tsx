@@ -110,6 +110,12 @@ function ChatEntry() {
       if (!trimmedId) return; 
       setError("");
 
+      // Cleanup any previous socket connection attempt
+      if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
+      }
+
       // Check if we have saved credentials for this room
       const existingRoom = savedRooms.find(r => r.id === trimmedId);
       const effectiveUserId = existingRoom?.userId || userId || uuidv4();
