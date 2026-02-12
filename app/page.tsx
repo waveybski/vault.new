@@ -102,9 +102,14 @@ function ChatEntry() {
       const socket = io({ path: "/socket.io", addTrailingSlash: false });
       socketRef.current = socket;
 
+      // Force update user state before emitting (closure issue fix)
+      // Actually, we pass effectiveUserId directly to emit, so state update lag shouldn't matter for the emit itself.
+      // But we need to ensure finalizeJoin uses the correct ID.
+
       socket.emit("join-room", id, effectiveUserId, effectiveUsername, (response: any) => {
            // This callback runs if immediate entry is allowed or if we get room info
            if (response) {
+               // We must pass the EFFECTIVE credentials to finalizeJoin, not the state ones (which might be stale)
                finalizeJoin(id, name || id, effectiveUserId, effectiveUsername);
            }
       });

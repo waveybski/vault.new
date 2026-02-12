@@ -1,4 +1,4 @@
 $git = "C:\Program Files\Git\cmd\git.exe"
 & $git add .
-& $git commit -m "Fix: Seamless manual rejoin for saved rooms"
+& $git commit -m "Fix: Robust rejoin logic for both sidebar and manual entry"
 & $git push origin master
