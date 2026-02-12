@@ -131,9 +131,6 @@ function ChatEntry() {
            // This callback runs if immediate entry is allowed or if we get room info
            if (response) {
                // We must pass the EFFECTIVE credentials to finalizeJoin, not the state ones (which might be stale)
-               const finalName = name || id; // Fix: Use 'name' from component state (roomName) if passed, else ID
-               // Actually, 'name' is not in scope here. It should be roomName from state or existingRoom.name.
-               // But wait, existing logic used 'name || id'. 'name' was an argument to finalizeJoin, but here we are in handleJoin.
                
                // Let's resolve the room name correctly.
                const resolvedName = existingRoom?.name || roomName || id;
