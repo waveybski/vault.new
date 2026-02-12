@@ -5,8 +5,8 @@ import { useState, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import Chat from "@/components/Chat";
-import { Clock, Settings, X as CloseIcon } from "lucide-react";
-import { io } from "socket.io-client";
+import { Clock, Settings, X as CloseIcon, Loader2 } from "lucide-react";
+import { io, Socket } from "socket.io-client";
 
 interface SavedRoom {
   id: string;
@@ -17,12 +17,15 @@ interface SavedRoom {
 function ChatEntry() {
   const [joined, setJoined] = useState(false);
   const [roomId, setRoomId] = useState("");
+  const [customRoomId, setCustomRoomId] = useState(""); // For custom room ID input
   const [roomName, setRoomName] = useState(""); // For new room creation
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState(""); // Initialize empty
   const [savedRooms, setSavedRooms] = useState<SavedRoom[]>([]);
   const [saveMessages, setSaveMessages] = useState(false);
   const [error, setError] = useState("");
+  const [isWaiting, setIsWaiting] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
 
   const searchParams = useSearchParams();
 
@@ -75,32 +78,61 @@ function ChatEntry() {
       if (!id || !username) return;
       setError("");
 
-      const exists = await checkRoomExists(id);
-      if (!exists) {
-          setError("Room ID not found. Please create a new room.");
-          return;
-      }
+      // Relaxed check: Try to join. If room doesn't exist, server will create it.
+      // This fixes the issue where invite links fail if the room is empty/ephemeral.
       
+      // LISTEN for approval status BEFORE proceeding
+      const socket = io({ path: "/socket.io", addTrailingSlash: false });
+      socketRef.current = socket;
+
+      socket.emit("join-room", id, userId || uuidv4(), username, (response: any) => {
+           // This callback runs if immediate entry is allowed or if we get room info
+           if (response) {
+               finalizeJoin(id, name || id);
+           }
+      });
+
+      socket.on("waiting-approval", () => {
+          setIsWaiting(true);
+      });
+
+      socket.on("join-approved", () => {
+          setIsWaiting(false);
+          finalizeJoin(id, name || id);
+      });
+
+      socket.on("join-rejected", () => {
+          setIsWaiting(false);
+          setError("Access Denied: The room owner rejected your request.");
+          socket.disconnect();
+      });
+  };
+
+  const finalizeJoin = (id: string, name: string) => {
       // Always save room ID to history
       const newSaved = savedRooms.filter(r => r.id !== id);
       // Preserve existing name if known, otherwise use ID
       const existing = savedRooms.find(r => r.id === id);
-      const name = existing?.name || id;
-      // const timestamp = new Date().getTime();
+      const finalName = existing?.name || name;
       
-      newSaved.unshift({ id, name, lastActive: Date.now() });
+      newSaved.unshift({ id, name: finalName, lastActive: Date.now() });
       setSavedRooms(newSaved);
       localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
       
       setRoomId(id);
-      setRoomName(name); // Pass name to chat
+      setRoomName(finalName); // Pass name to chat
+      
+      // Close temp socket used for negotiation, real Chat component will open its own
+      if (socketRef.current) socketRef.current.disconnect();
+      
       setJoined(true);
   };
 
   const handleCreate = () => {
       if (!username) return;
-      const newRoomId = uuidv4();
-      const name = roomName.trim() || "General"; // Default name if empty
+      // Use custom ID if provided, otherwise generate UUID
+      const newRoomId = customRoomId.trim() || uuidv4();
+      const name = roomName.trim() || newRoomId; // Use ID as name if empty
       
       // No need to check existence for new room
       const newSaved = savedRooms.filter(r => r.id !== newRoomId);
@@ -257,10 +289,10 @@ function ChatEntry() {
                                 />
                                 <button
                                     onClick={() => handleJoin(roomId)}
-                                    disabled={!roomId || !username}
-                                    className="w-full bg-[#5865F2] hover:bg-[#4752c4] text-white py-3 rounded-lg font-bold transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-blue-500/20"
+                                    disabled={!roomId || !username || isWaiting}
+                                    className="w-full bg-[#5865F2] hover:bg-[#4752c4] text-white py-3 rounded-lg font-bold transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-blue-500/20 flex items-center justify-center gap-2"
                                 >
-                                    Join Room
+                                    {isWaiting ? <><Loader2 className="w-5 h-5 animate-spin" /> Requesting Access...</> : "Join Room"}
                                 </button>
                             </div>
 
@@ -271,6 +303,13 @@ function ChatEntry() {
                                     <span className="text-gray-400 text-sm font-semibold uppercase">Create New</span>
                                     <div className="h-px flex-1 bg-gray-700"></div>
                                 </div>
+                                <input
+                                    type="text"
+                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder-gray-600 mb-4"
+                                    value={customRoomId}
+                                    onChange={(e) => setCustomRoomId(e.target.value)}
+                                    placeholder="Custom Room ID (Optional)"
+                                />
                                 <input
                                     type="text"
                                     className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder-gray-600"

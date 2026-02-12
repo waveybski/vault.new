@@ -15,7 +15,7 @@ import {
   encryptKey,
   decryptKey,
 } from "@/lib/encryption";
-import { Phone, Video, X, Lock, ShieldAlert, FileUp, Link as LinkIcon, Timer, Bomb, Trash2 } from "lucide-react";
+import { Phone, Video, X, Lock, ShieldAlert, FileUp, Link as LinkIcon, Timer, Bomb, Trash2, UserPlus, Check, XCircle, Languages } from "lucide-react";
 import { clsx } from "clsx";
 
 interface MessageContent {
@@ -57,6 +57,10 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
   const [isEncrypted, setIsEncrypted] = useState(false);
   const [expirationTime, setExpirationTime] = useState<number>(0); // 0 = off, otherwise ms
   
+  // Join Request State
+  const [joinRequests, setJoinRequests] = useState<{userId: string, username: string}[]>([]);
+  const [showTranslate, setShowTranslate] = useState(false); // Toggle for translation UI
+
   // Load saved messages on mount
   useEffect(() => {
       const saved = localStorage.getItem(`vault_msgs_${roomId}`);
@@ -215,6 +219,16 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
         addSystemMessage("☢️ ROOM NUKED - EVACUATING... ☢️");
         localStorage.removeItem(`vault_msgs_${roomId}`);
         setTimeout(() => onLeave(), 2000);
+    });
+
+    // Join Requests (Owner Side)
+    socket.on("join-request", (data: {userId: string, username: string}) => {
+        setJoinRequests(prev => [...prev, data]);
+        addSystemMessage(`🔔 Join Request: ${data.username} wants to enter.`);
+    });
+
+    socket.on("promoted-to-owner", () => {
+        addSystemMessage("👑 You are now the Room Owner.");
     });
 
     socket.on("receive-message", async (data: { message: { iv: number[]; data: number[] }; senderId: string; username?: string }) => {
@@ -505,6 +519,23 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
       setConfirmation({ type: "web-nuke", isOpen: true });
   };
 
+  const handleApprove = (reqId: string) => {
+      socket?.emit("approve-join", { roomId, userId: reqId });
+      setJoinRequests(prev => prev.filter(r => r.userId !== reqId));
+  };
+
+  const handleReject = (reqId: string) => {
+      socket?.emit("reject-join", { roomId, userId: reqId });
+      setJoinRequests(prev => prev.filter(r => r.userId !== reqId));
+  };
+
+  // Mock Translation (In real app, call API here)
+  const translateMessage = async (text: string) => {
+      // For demo, we just append [Translated]
+      // Real impl: const res = await fetch(`https://api.mymemory.translated.net/get?q=${text}&langpair=en|es`);
+      return `[Translated] ${text}`;
+  };
+
   return (
     <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
       {/* Sidebar - Users List (Discord Style) */}
@@ -570,6 +601,9 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
                 <button onClick={nukeRoom} className="text-gray-400 hover:text-red-500" title="Nuke Channel">
                     <Trash2 className="w-5 h-5" />
                 </button>
+                <button onClick={() => setShowTranslate(!showTranslate)} className={clsx("text-gray-400 hover:text-blue-400", showTranslate && "text-blue-500")} title="Auto Translate">
+                    <Languages className="w-5 h-5" />
+                </button>
                 <button onClick={copyInvite} className="text-gray-400 hover:text-white" title="Invite">
                      <LinkIcon className="w-5 h-5" />
                 </button>
@@ -621,7 +655,17 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
                                 </div>
                             )}
                             <div className={clsx("text-gray-300 whitespace-pre-wrap leading-relaxed", !showHeader && "mt-0.5")}>
-                                {msg.content.type === "text" && msg.content.text}
+                                {msg.content.type === "text" && (
+                                    <>
+                                        {msg.content.text}
+                                        {showTranslate && msg.content.text && (
+                                            <div className="text-xs text-blue-400 mt-1 italic border-l-2 border-blue-500 pl-2">
+                                                {/* Mock translation for now */}
+                                                [Translated]: {msg.content.text}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                                 {msg.content.type === "file" && (
                                     <div className="mt-2 inline-flex flex-col bg-gray-900 rounded border border-gray-700 overflow-hidden max-w-sm">
                                         {msg.content.mime?.startsWith("image/") ? (
@@ -718,6 +762,24 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
                 </button>
             </div>
         </div>
+      )}
+
+      {/* Join Request Modal */}
+      {joinRequests.length > 0 && (
+          <div className="fixed top-4 right-4 z-[100] w-80 space-y-2">
+              {joinRequests.map(req => (
+                  <div key={req.userId} className="bg-gray-800 border border-gray-700 p-4 rounded shadow-xl flex items-center justify-between animate-in slide-in-from-right">
+                      <div>
+                          <div className="text-sm font-bold text-gray-200">{req.username}</div>
+                          <div className="text-xs text-gray-400">wants to join</div>
+                      </div>
+                      <div className="flex gap-2">
+                          <button onClick={() => handleApprove(req.userId)} className="p-1.5 bg-green-600 hover:bg-green-500 rounded text-white"><Check className="w-4 h-4" /></button>
+                          <button onClick={() => handleReject(req.userId)} className="p-1.5 bg-red-600 hover:bg-red-500 rounded text-white"><X className="w-4 h-4" /></button>
+                      </div>
+                  </div>
+              ))}
+          </div>
       )}
 
       {/* Confirmation Modal */}

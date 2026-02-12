@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "Vault",
   description: "Secure, ephemeral, military-grade communication.",
   verification: {
-    google: "T5FZa1yaIsmXHDjqBqeNIt9FL8ZgIzhdeeLCmnL6Pz4",
+    google: "AEAyqsH3mP3WMOj9nbmfqpktm5kDkV97jlr9Sa79u1U",
   },
 };
 
