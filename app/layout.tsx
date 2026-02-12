@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Vault",
   description: "Secure, ephemeral, military-grade communication.",
+  verification: {
+    google: "T5FZa1yaIsmXHDjqBqeNIt9FL8ZgIzhdeeLCmnL6Pz4",
+  },
 };
 
 export default function RootLayout({
