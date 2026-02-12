@@ -58,6 +58,16 @@ function ChatEntry() {
     const room = searchParams.get("room");
     if (room) {
       setRoomId(room);
+      // Auto-join logic if profile exists
+      if (username) {
+          // Small delay to ensure state is settled
+          setTimeout(() => {
+             // Only auto-join if not already joined/waiting
+             if (!joined && !isWaiting) {
+                 handleJoin(room);
+             }
+          }, 500);
+      }
     }
     
     // Load saved rooms
@@ -148,6 +158,11 @@ function ChatEntry() {
           setError("Access Denied: The room owner rejected your request.");
           socket.disconnect();
       });
+
+      // Handle whitelist approval while waiting
+      // If we are waiting and suddenly get approved (because host added us), we need to react
+      // The server emits 'join-approved' in this case too, so the listener above handles it.
+      // BUT, we need to make sure we don't disconnect prematurely.
   };
 
   const finalizeJoin = (id: string, name: string, uid: string, uname: string, dname: string, vIP?: string) => {
