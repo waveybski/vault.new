@@ -182,7 +182,7 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
     socket.emit("join-room", roomId, userId, username, displayName, async (response: { size: number; isCreator: boolean; users: {userId: string, username: string, displayName?: string, virtualIP?: string}[] }) => {
       setHasJoined(true);
       if (response.isCreator) {
-        console.log("Creating room key...");
+        // console.log("Creating room key...");
         const key = await generateSymKey();
         setRoomKey(key);
         setIsEncrypted(true); // FORCE UNLOCK IMMEDIATELY
@@ -237,7 +237,7 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
     });
     
     socket.on("nuke-room", () => {
-        console.log("Nuke event received!");
+        // console.log("Nuke event received!");
         setMessages([]);
         addSystemMessage("☢️ ROOM NUKED - EVACUATING... ☢️");
         localStorage.removeItem(`vault_msgs_${roomId}`);

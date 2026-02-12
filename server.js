@@ -46,7 +46,7 @@ app.prepare().then(() => {
   
   // Store usernames: socketId -> username
   const usernames = new Map();
-  // Store room data: roomId -> { creatorId: string, users: [{userId, username, socketId, virtualIP}], pending: [], allowedUsers: Set<string>, allowedUsernames: Set<string> }
+  // Store room data: roomId -> { creatorId: string, users: [{userId, username, displayName, socketId, virtualIP}], pending: [], allowedUsers: Set<string>, allowedUsernames: Set<string> }
   const roomData = new Map();
 
   // Admin IP for WebNuke (Loopback for local dev)
@@ -72,7 +72,7 @@ app.prepare().then(() => {
         callback(exists);
     });
 
-    socket.on("join-room", (roomId, userId, username, callback) => {
+    socket.on("join-room", (roomId, userId, username, displayName, callback) => {
       // 1. Initialize room if new
       if (!roomData.has(roomId)) {
         roomData.set(roomId, {
@@ -98,12 +98,12 @@ app.prepare().then(() => {
       
       if (isCreator || existingUser || isAllowed) {
           // Allow immediate entry
-          joinRoom(socket, roomId, userId, username, true, virtualIP); // true = isCreator (if applicable)
+          joinRoom(socket, roomId, userId, username, displayName, true, virtualIP); // true = isCreator (if applicable)
           if (callback) callback({ size: room.users.length, isCreator, users: room.users, virtualIP });
       } else {
           // 3. New user requesting access
           // Add to pending list
-          room.pending.push({ userId, username, socketId: socket.id });
+          room.pending.push({ userId, username, displayName, socketId: socket.id });
           
           // Notify creator
           const creatorSocketId = room.users.find(u => u.userId === room.creatorId)?.socketId;
@@ -135,7 +135,7 @@ app.prepare().then(() => {
             if (userSocket) {
                 // @ts-ignore
                 const userVirtualIP = userSocket.virtualIP;
-                joinRoom(userSocket, roomId, user.userId, user.username, false, userVirtualIP);
+                joinRoom(userSocket, roomId, user.userId, user.username, user.displayName, false, userVirtualIP);
                 userSocket.emit("join-approved", { 
                     size: room.users.length, 
                     isCreator: false, 
@@ -177,7 +177,7 @@ app.prepare().then(() => {
              if (userSocket) {
                  // @ts-ignore
                  const userVirtualIP = userSocket.virtualIP;
-                 joinRoom(userSocket, roomId, user.userId, user.username, false, userVirtualIP);
+                 joinRoom(userSocket, roomId, user.userId, user.username, user.displayName, false, userVirtualIP);
                  userSocket.emit("join-approved", { 
                     size: room.users.length, 
                     isCreator: false, 
@@ -188,7 +188,7 @@ app.prepare().then(() => {
         }
     });
 
-    function joinRoom(socket, roomId, userId, username, isCreator, virtualIP) {
+    function joinRoom(socket, roomId, userId, username, displayName, isCreator, virtualIP) {
         socket.join(roomId);
         usernames.set(socket.id, username);
         
@@ -197,9 +197,9 @@ app.prepare().then(() => {
         const existingIdx = room.users.findIndex(u => u.userId === userId);
         if (existingIdx !== -1) room.users.splice(existingIdx, 1);
         
-        room.users.push({ userId, username, socketId: socket.id, virtualIP });
+        room.users.push({ userId, username, displayName, socketId: socket.id, virtualIP });
         
-        socket.to(roomId).emit("user-connected", { userId, username, virtualIP });
+        socket.to(roomId).emit("user-connected", { userId, username, displayName, virtualIP });
 
         socket.on("disconnect", () => {
             handleDisconnect(socket, roomId, userId);

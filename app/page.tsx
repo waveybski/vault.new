@@ -66,7 +66,7 @@ function ChatEntry() {
         try {
             setSavedRooms(JSON.parse(saved));
         } catch (e) {
-            console.error("Failed to load saved rooms", e);
+            // console.error("Failed to load saved rooms", e);
         }
     }
     
