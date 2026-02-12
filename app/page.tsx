@@ -222,8 +222,8 @@ function ChatEntry() {
              {savedRooms.map(room => (
                  <div 
                     key={room.id}
-                    onClick={() => { if (username) handleJoin(room.id); }}
-                    className={`group relative flex items-center gap-3 px-2 py-2 rounded-md hover:bg-[#35373c] cursor-pointer transition-all ${!username ? 'opacity-50 pointer-events-none' : ''} ${roomId === room.id ? 'bg-[#35373c] text-white' : 'text-gray-400'}`}
+                    onClick={() => handleJoin(room.id)}
+                    className={`group relative flex items-center gap-3 px-2 py-2 rounded-md hover:bg-[#35373c] cursor-pointer transition-all ${roomId === room.id ? 'bg-[#35373c] text-white' : 'text-gray-400'}`}
                  >
                     {/* Discord-like pill for active state */}
                     {roomId === room.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded-r-full"></div>}
