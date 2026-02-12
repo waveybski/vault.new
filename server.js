@@ -25,6 +25,10 @@ app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
     try {
       const parsedUrl = parse(req.url, true);
+      // Let Socket.IO handle its own requests
+      if (parsedUrl.pathname.startsWith("/socket.io/")) {
+        return; 
+      }
       await handle(req, res, parsedUrl);
     } catch (err) {
       console.error("Error occurred handling", req.url, err);
