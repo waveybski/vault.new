@@ -106,11 +106,12 @@ function ChatEntry() {
   };
 
   const handleJoin = async (id: string = roomId) => {
-      if (!id) return; // Allow joining without username if saved credential exists
+      const trimmedId = id?.trim(); // Ensure no trailing spaces
+      if (!trimmedId) return; 
       setError("");
 
       // Check if we have saved credentials for this room
-      const existingRoom = savedRooms.find(r => r.id === id);
+      const existingRoom = savedRooms.find(r => r.id === trimmedId);
       const effectiveUserId = existingRoom?.userId || userId || uuidv4();
       const effectiveUsername = existingRoom?.username || username;
       const effectiveDisplayName = existingRoom?.displayName || displayName || effectiveUsername;
@@ -135,10 +136,10 @@ function ChatEntry() {
 
       socket.on("connect", () => {
           // Emit join only after connection is established
-          socket.emit("join-room", id, effectiveUserId, effectiveUsername, effectiveDisplayName, (response: any) => {
+          socket.emit("join-room", trimmedId, effectiveUserId, effectiveUsername, effectiveDisplayName, (response: any) => {
                if (response) {
-                   const resolvedName = existingRoom?.name || roomName || id;
-                   finalizeJoin(id, resolvedName, effectiveUserId, effectiveUsername, effectiveDisplayName, response.virtualIP);
+                   const resolvedName = existingRoom?.name || roomName || trimmedId;
+                   finalizeJoin(trimmedId, resolvedName, effectiveUserId, effectiveUsername, effectiveDisplayName, response.virtualIP);
                }
           });
       });
@@ -149,8 +150,8 @@ function ChatEntry() {
 
       socket.on("join-approved", (data: any) => {
           setIsWaiting(false);
-          const resolvedName = existingRoom?.name || roomName || id;
-          finalizeJoin(id, resolvedName, effectiveUserId, effectiveUsername, effectiveDisplayName, data?.virtualIP);
+          const resolvedName = existingRoom?.name || roomName || trimmedId;
+          finalizeJoin(trimmedId, resolvedName, effectiveUserId, effectiveUsername, effectiveDisplayName, data?.virtualIP);
       });
 
       socket.on("join-rejected", () => {
@@ -219,13 +220,17 @@ function ChatEntry() {
       setJoined(true);
   };
 
-  const deleteRoom = (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
+  const removeRoom = (id: string) => {
       const newSaved = savedRooms.filter(r => r.id !== id);
       setSavedRooms(newSaved);
       localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
       // Also clear saved messages for this room
       localStorage.removeItem(`vault_msgs_${id}`);
+  };
+
+  const deleteRoom = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      removeRoom(id);
   };
 
   const toggleSettings = () => {
@@ -243,7 +248,7 @@ function ChatEntry() {
   };
 
   if (joined) {
-    return <Chat roomId={roomId} roomName={roomName || roomId} userId={userId} username={username} displayName={displayName || username} virtualIP={virtualIP} saveMessages={saveMessages} onLeave={() => setJoined(false)} />;
+    return <Chat roomId={roomId} roomName={roomName || roomId} userId={userId} username={username} displayName={displayName || username} virtualIP={virtualIP} saveMessages={saveMessages} onLeave={() => setJoined(false)} onNuke={() => { removeRoom(roomId); setJoined(false); }} />;
   }
 
   return (
@@ -258,7 +263,7 @@ function ChatEntry() {
           <div className="flex-1 overflow-y-auto p-2 space-y-0.5 custom-scrollbar">
              {savedRooms.length > 0 && (
                 <div className="hidden md:block text-xs font-bold text-gray-400 uppercase mb-2 mt-2 px-2 tracking-wide">
-                    Your Chats
+                    Servers You Are In
                 </div>
              )}
              

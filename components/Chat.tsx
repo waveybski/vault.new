@@ -46,9 +46,10 @@ interface ChatProps {
   virtualIP?: string; // Added prop for displaying pseudo-IP
   saveMessages: boolean;
   onLeave: () => void;
+  onNuke?: () => void; // New prop for nuke cleanup
 }
 
-export default function Chat({ roomId, roomName, userId, username, displayName, virtualIP, saveMessages, onLeave }: ChatProps) {
+export default function Chat({ roomId, roomName, userId, username, displayName, virtualIP, saveMessages, onLeave, onNuke }: ChatProps) {
   const socket = useSocket();
   const peer = usePeer(userId);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -241,7 +242,12 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
         setMessages([]);
         addSystemMessage("☢️ ROOM NUKED - EVACUATING... ☢️");
         localStorage.removeItem(`vault_msgs_${roomId}`);
-        setTimeout(() => onLeave(), 2000);
+        // If onNuke handler is provided, call it to remove server from list
+        if (onNuke) {
+            setTimeout(() => onNuke(), 2000);
+        } else {
+            setTimeout(() => onLeave(), 2000);
+        }
     });
 
     // Join Requests (Owner Side)
