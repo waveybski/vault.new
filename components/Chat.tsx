@@ -41,11 +41,12 @@ interface ChatProps {
   roomName?: string; // Optional custom name
   userId: string;
   username: string;
+  virtualIP?: string; // Added prop for displaying pseudo-IP
   saveMessages: boolean;
   onLeave: () => void;
 }
 
-export default function Chat({ roomId, roomName, userId, username, saveMessages, onLeave }: ChatProps) {
+export default function Chat({ roomId, roomName, userId, username, virtualIP, saveMessages, onLeave }: ChatProps) {
   const socket = useSocket();
   const peer = usePeer(userId);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -591,6 +592,11 @@ export default function Chat({ roomId, roomName, userId, username, saveMessages,
                     <span className="text-gray-500">#</span> 
                     <span className="truncate max-w-[150px] sm:max-w-md">{roomName || roomId}</span>
                 </span>
+                {virtualIP && (
+                    <span className="hidden sm:inline-block text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded border border-gray-700 font-mono" title="Your Anonymous Virtual IP">
+                        IP: {virtualIP}
+                    </span>
+                )}
                 {isEncrypted && <span className="text-[10px] bg-green-900/50 text-green-400 px-1.5 py-0.5 rounded border border-green-900">E2EE</span>}
             </div>
             

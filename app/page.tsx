@@ -23,6 +23,7 @@ function ChatEntry() {
   const [roomName, setRoomName] = useState(""); // For new room creation
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState(""); // Initialize empty
+  const [virtualIP, setVirtualIP] = useState(""); // Store assigned virtual IP
   const [savedRooms, setSavedRooms] = useState<SavedRoom[]>([]);
   const [saveMessages, setSaveMessages] = useState(false);
   const [error, setError] = useState("");
@@ -110,7 +111,7 @@ function ChatEntry() {
            // This callback runs if immediate entry is allowed or if we get room info
            if (response) {
                // We must pass the EFFECTIVE credentials to finalizeJoin, not the state ones (which might be stale)
-               finalizeJoin(id, name || id, effectiveUserId, effectiveUsername);
+               finalizeJoin(id, name || id, effectiveUserId, effectiveUsername, response.virtualIP);
            }
       });
 
@@ -118,9 +119,9 @@ function ChatEntry() {
           setIsWaiting(true);
       });
 
-      socket.on("join-approved", () => {
+      socket.on("join-approved", (data: any) => {
           setIsWaiting(false);
-          finalizeJoin(id, name || id, effectiveUserId, effectiveUsername);
+          finalizeJoin(id, name || id, effectiveUserId, effectiveUsername, data?.virtualIP);
       });
 
       socket.on("join-rejected", () => {
@@ -130,7 +131,7 @@ function ChatEntry() {
       });
   };
 
-  const finalizeJoin = (id: string, name: string, uid: string, uname: string) => {
+  const finalizeJoin = (id: string, name: string, uid: string, uname: string, vIP?: string) => {
       // Always save room ID to history
       const newSaved = savedRooms.filter(r => r.id !== id);
       // Preserve existing name if known, otherwise use ID
@@ -149,6 +150,7 @@ function ChatEntry() {
       
       setRoomId(id);
       setRoomName(finalName); // Pass name to chat
+      if (vIP) setVirtualIP(vIP);
       
       // Close temp socket used for negotiation, real Chat component will open its own
       if (socketRef.current) socketRef.current.disconnect();
@@ -206,7 +208,7 @@ function ChatEntry() {
   };
 
   if (joined) {
-    return <Chat roomId={roomId} roomName={roomName || roomId} userId={userId} username={username} saveMessages={saveMessages} onLeave={() => setJoined(false)} />;
+    return <Chat roomId={roomId} roomName={roomName || roomId} userId={userId} username={username} virtualIP={virtualIP} saveMessages={saveMessages} onLeave={() => setJoined(false)} />;
   }
 
   return (

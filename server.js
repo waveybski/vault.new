@@ -46,13 +46,24 @@ app.prepare().then(() => {
   
   // Store usernames: socketId -> username
   const usernames = new Map();
-  // Store room data: roomId -> { creatorId: string, users: [{userId, username, socketId}], pending: [] }
+  // Store room data: roomId -> { creatorId: string, users: [{userId, username, socketId}], pending: [], allowedUsers: Set<string> }
   const roomData = new Map();
 
   // Admin IP for WebNuke (Loopback for local dev)
   const ADMIN_IPS = ["::1", "127.0.0.1", "::ffff:127.0.0.1"];
 
+  // Helper to generate random IP
+  const getRandomIP = () => {
+      return Array(4).fill(0).map(() => Math.floor(Math.random() * 256)).join('.');
+  };
+
   io.on("connection", (socket) => {
+    // Assign a virtual IP to this session
+    const virtualIP = getRandomIP();
+    // Store it on the socket object for reference (not exposed to client directly)
+    // @ts-ignore
+    socket.virtualIP = virtualIP;
+    
     // console.log("Client connected:", socket.id); // Removed for data minimization
 
     // Check if room exists
@@ -67,25 +78,27 @@ app.prepare().then(() => {
         roomData.set(roomId, {
             creatorId: userId,
             users: [],
-            pending: []
+            pending: [],
+            allowedUsers: new Set([userId]) // Creator is always allowed
         });
         
         // Log new room to DB
         db.query("INSERT INTO rooms (room_id) VALUES ($1)", [roomId])
-          .then(() => console.log(`Room ${roomId} logged to DB`))
+          .then(() => console.log(`Room ${roomId} logged to DB (Creator Virtual IP: ${virtualIP})`))
           .catch(err => console.error("Failed to log room:", err));
       }
 
       const room = roomData.get(roomId);
       
-      // 2. Check if user is the creator or already in (rejoin)
+      // 2. Check if user is the creator or already in (rejoin) or allowed
       const isCreator = room.creatorId === userId;
       const existingUser = room.users.find(u => u.userId === userId);
+      const isAllowed = room.allowedUsers.has(userId);
       
-      if (isCreator || existingUser) {
+      if (isCreator || existingUser || isAllowed) {
           // Allow immediate entry
           joinRoom(socket, roomId, userId, username, true); // true = isCreator (if applicable)
-          if (callback) callback({ size: room.users.length, isCreator, users: room.users });
+          if (callback) callback({ size: room.users.length, isCreator, users: room.users, virtualIP });
       } else {
           // 3. New user requesting access
           // Add to pending list
@@ -113,14 +126,20 @@ app.prepare().then(() => {
             const user = room.pending[pendingIdx];
             room.pending.splice(pendingIdx, 1);
             
+            // Add to allowed set
+            room.allowedUsers.add(user.userId);
+            
             // Get user socket
             const userSocket = io.sockets.sockets.get(user.socketId);
             if (userSocket) {
                 joinRoom(userSocket, roomId, user.userId, user.username, false);
+                // @ts-ignore
+                const userVirtualIP = userSocket.virtualIP;
                 userSocket.emit("join-approved", { 
                     size: room.users.length, 
                     isCreator: false, 
-                    users: room.users 
+                    users: room.users,
+                    virtualIP: userVirtualIP
                 });
             }
         }
