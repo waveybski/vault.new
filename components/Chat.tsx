@@ -53,6 +53,7 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
   const [input, setInput] = useState("");
   const [users, setUsers] = useState<string[]>([]);
   const [userMap, setUserMap] = useState<Map<string, string>>(new Map());
+  const [ipMap, setIpMap] = useState<Map<string, string>>(new Map()); // Store Virtual IPs
   const [identityKey, setIdentityKey] = useState<CryptoKeyPair | null>(null);
   const [roomKey, setRoomKey] = useState<CryptoKey | null>(null);
   const [isEncrypted, setIsEncrypted] = useState(false);
@@ -61,6 +62,8 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
   // Join Request State
   const [joinRequests, setJoinRequests] = useState<{userId: string, username: string}[]>([]);
   const [showTranslate, setShowTranslate] = useState(false); // Toggle for translation UI
+  const [showAddUser, setShowAddUser] = useState(false); // Toggle for add user modal
+  const [addUserTarget, setAddUserTarget] = useState(""); // Username to add
 
   // Load saved messages on mount
   useEffect(() => {
@@ -92,7 +95,15 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
             return msg.content.expiresAt > Date.now();
         }));
     }, 1000);
-    return () => clearInterval(interval);
+    const handleAddUser = () => {
+      if (!addUserTarget.trim()) return;
+      socket?.emit("add-allowed-username", { roomId, targetUsername: addUserTarget.trim() });
+      addSystemMessage(`Whitelisted username: ${addUserTarget}`);
+      setAddUserTarget("");
+      setShowAddUser(false);
+  };
+
+  return () => clearInterval(interval);
   }, []);
   
   // Video Call State
@@ -166,7 +177,7 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
     if (!socket || !identityKey || hasJoined) return;
 
     // Join Room
-    socket.emit("join-room", roomId, userId, username, async (response: { size: number; isCreator: boolean; users: {userId: string, username: string}[] }) => {
+    socket.emit("join-room", roomId, userId, username, async (response: { size: number; isCreator: boolean; users: {userId: string, username: string, virtualIP?: string}[] }) => {
       setHasJoined(true);
       if (response.isCreator) {
         console.log("Creating room key...");
@@ -189,11 +200,16 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
       const userList = response.users || [];
       setUsers(userList.map(u => u.userId));
       const newMap = new Map();
-      userList.forEach(u => newMap.set(u.userId, u.username));
+      const newIpMap = new Map();
+      userList.forEach(u => {
+          newMap.set(u.userId, u.username);
+          if (u.virtualIP) newIpMap.set(u.userId, u.virtualIP);
+      });
       setUserMap(newMap);
+      setIpMap(newIpMap);
     });
 
-    socket.on("user-connected", (data: {userId: string, username: string}) => {
+    socket.on("user-connected", (data: {userId: string, username: string, virtualIP?: string}) => {
       // Prevent duplicate join messages
       setUsers((prev) => {
         if (prev.includes(data.userId)) return prev;
@@ -201,6 +217,9 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
         return [...prev, data.userId];
       });
       setUserMap(prev => new Map(prev).set(data.userId, data.username));
+      if (data.virtualIP) {
+          setIpMap(prev => new Map(prev).set(data.userId, data.virtualIP!));
+      }
     });
 
     socket.on("user-disconnected", (leftUserId) => {
@@ -548,7 +567,7 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
               <div className="text-xs font-bold text-gray-500 uppercase mb-2 px-2">Online — {users.length}</div>
               {users.map(u => (
-                  <div key={u} className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-gray-800 group cursor-pointer">
+                  <div key={u} className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-gray-800 group cursor-pointer relative" title={`Virtual IP: ${ipMap.get(u) || "Unknown"}`}>
                       <div className="relative">
                           <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold">
                               {(userMap.get(u) || u.slice(0, 2)).toUpperCase().slice(0, 2)}
@@ -560,18 +579,25 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
                               {userMap.get(u) || u.slice(0, 8)}
                               {u === userId && <span className="ml-1 text-xs text-gray-500">(You)</span>}
                           </div>
+                          {ipMap.get(u) && (
+                              <div className="text-[10px] text-gray-500 font-mono hidden group-hover:block">
+                                  {ipMap.get(u)}
+                              </div>
+                          )}
                       </div>
                   </div>
               ))}
           </div>
           <div className="p-3 bg-gray-925 border-t border-gray-800">
-             <div className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-800 cursor-pointer" title="Your Profile">
+             <div className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-800 cursor-pointer" title={`Your Virtual IP: ${virtualIP}`}>
                 <div className="w-8 h-8 rounded-full bg-green-700 flex items-center justify-center font-bold text-xs">
                     {username.slice(0,2).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="text-xs font-bold truncate">{username}</div>
-                    <div className="text-[10px] text-gray-400 truncate">#{userId.slice(0, 4)}</div>
+                    <div className="text-[10px] text-gray-400 truncate font-mono">
+                        {virtualIP || `#${userId.slice(0, 4)}`}
+                    </div>
                 </div>
                 <button onClick={onLeave} className="p-1 hover:bg-gray-700 rounded text-red-400">
                     <X className="w-4 h-4" />
@@ -592,11 +618,6 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
                     <span className="text-gray-500">#</span> 
                     <span className="truncate max-w-[150px] sm:max-w-md">{roomName || roomId}</span>
                 </span>
-                {virtualIP && (
-                    <span className="hidden sm:inline-block text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded border border-gray-700 font-mono" title="Your Anonymous Virtual IP">
-                        IP: {virtualIP}
-                    </span>
-                )}
                 {isEncrypted && <span className="text-[10px] bg-green-900/50 text-green-400 px-1.5 py-0.5 rounded border border-green-900">E2EE</span>}
             </div>
             
@@ -606,6 +627,9 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
                 </button>
                 <button onClick={nukeRoom} className="text-gray-400 hover:text-red-500" title="Nuke Channel">
                     <Trash2 className="w-5 h-5" />
+                </button>
+                <button onClick={() => setShowAddUser(true)} className="text-gray-400 hover:text-green-500" title="Add User by Username">
+                    <UserPlus className="w-5 h-5" />
                 </button>
                 <button onClick={() => setShowTranslate(!showTranslate)} className={clsx("text-gray-400 hover:text-blue-400", showTranslate && "text-blue-500")} title="Auto Translate">
                     <Languages className="w-5 h-5" />
@@ -785,6 +809,28 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
                       </div>
                   </div>
               ))}
+          </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAddUser && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+              <div className="bg-[#313338] rounded-lg p-6 w-full max-w-sm shadow-2xl border border-gray-700">
+                  <h3 className="text-lg font-bold text-gray-100 mb-4">Add User to Allowlist</h3>
+                  <p className="text-sm text-gray-400 mb-4">Enter the exact username to allow them to join without a request.</p>
+                  <input
+                      type="text"
+                      className="w-full bg-[#1e1f22] text-white px-4 py-2 rounded border border-gray-700 focus:border-green-500 outline-none mb-4"
+                      value={addUserTarget}
+                      onChange={(e) => setAddUserTarget(e.target.value)}
+                      placeholder="Username"
+                      autoFocus
+                  />
+                  <div className="flex justify-end gap-3">
+                      <button onClick={() => setShowAddUser(false)} className="text-gray-400 hover:text-white text-sm">Cancel</button>
+                      <button onClick={handleAddUser} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm font-bold">Add User</button>
+                  </div>
+              </div>
           </div>
       )}
 
