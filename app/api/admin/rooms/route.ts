@@ -9,7 +9,7 @@ const pool = new Pool({
 
 export async function GET() {
   try {
-    const result = await pool.query('SELECT * FROM rooms ORDER BY created_at DESC LIMIT 50');
+    const result = await pool.query('SELECT * FROM rooms ORDER BY created_at DESC');
     return NextResponse.json({ rooms: result.rows });
   } catch (error) {
     console.error('Database Error:', error);

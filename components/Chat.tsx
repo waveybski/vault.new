@@ -483,8 +483,8 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
     const file = e.target.files?.[0];
     if (!file || !roomKey || !socket) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-        addSystemMessage("File too large (max 5MB).");
+    if (file.size > 100 * 1024 * 1024) {
+        addSystemMessage("File too large (max 100MB).");
         return;
     }
 

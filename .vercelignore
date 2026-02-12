@@ -5,3 +5,8 @@ dist
 .trae
 .log
 .figma
+.next
+coverage
+.DS_Store
+*.pem
+*.log

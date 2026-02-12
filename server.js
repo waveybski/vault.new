@@ -38,6 +38,7 @@ app.prepare().then(() => {
   });
 
   const io = new Server(httpServer, {
+    maxHttpBufferSize: 1e8, // 100 MB
     cors: {
       origin: "*",
       methods: ["GET", "POST"]
