@@ -31,6 +31,7 @@ interface Message {
   id: string;
   senderId: string;
   senderUsername?: string; // Optional username field
+  senderDisplayName?: string; // Optional display name field
   content: MessageContent;
   timestamp: number;
   type: "user" | "system";
@@ -41,18 +42,19 @@ interface ChatProps {
   roomName?: string; // Optional custom name
   userId: string;
   username: string;
+  displayName?: string; // Display name
   virtualIP?: string; // Added prop for displaying pseudo-IP
   saveMessages: boolean;
   onLeave: () => void;
 }
 
-export default function Chat({ roomId, roomName, userId, username, virtualIP, saveMessages, onLeave }: ChatProps) {
+export default function Chat({ roomId, roomName, userId, username, displayName, virtualIP, saveMessages, onLeave }: ChatProps) {
   const socket = useSocket();
   const peer = usePeer(userId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [users, setUsers] = useState<string[]>([]);
-  const [userMap, setUserMap] = useState<Map<string, string>>(new Map());
+  const [userMap, setUserMap] = useState<Map<string, {username: string, displayName?: string}>>(new Map());
   const [ipMap, setIpMap] = useState<Map<string, string>>(new Map()); // Store Virtual IPs
   const [identityKey, setIdentityKey] = useState<CryptoKeyPair | null>(null);
   const [roomKey, setRoomKey] = useState<CryptoKey | null>(null);
@@ -95,16 +97,16 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
             return msg.content.expiresAt > Date.now();
         }));
     }, 1000);
-    const handleAddUser = () => {
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleAddUser = () => {
       if (!addUserTarget.trim()) return;
       socket?.emit("add-allowed-username", { roomId, targetUsername: addUserTarget.trim() });
       addSystemMessage(`Whitelisted username: ${addUserTarget}`);
       setAddUserTarget("");
       setShowAddUser(false);
   };
-
-  return () => clearInterval(interval);
-  }, []);
   
   // Video Call State
   // const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -177,7 +179,7 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
     if (!socket || !identityKey || hasJoined) return;
 
     // Join Room
-    socket.emit("join-room", roomId, userId, username, async (response: { size: number; isCreator: boolean; users: {userId: string, username: string, virtualIP?: string}[] }) => {
+    socket.emit("join-room", roomId, userId, username, displayName, async (response: { size: number; isCreator: boolean; users: {userId: string, username: string, displayName?: string, virtualIP?: string}[] }) => {
       setHasJoined(true);
       if (response.isCreator) {
         console.log("Creating room key...");
@@ -202,28 +204,29 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
       const newMap = new Map();
       const newIpMap = new Map();
       userList.forEach(u => {
-          newMap.set(u.userId, u.username);
+          newMap.set(u.userId, { username: u.username, displayName: u.displayName });
           if (u.virtualIP) newIpMap.set(u.userId, u.virtualIP);
       });
       setUserMap(newMap);
       setIpMap(newIpMap);
     });
 
-    socket.on("user-connected", (data: {userId: string, username: string, virtualIP?: string}) => {
+    socket.on("user-connected", (data: {userId: string, username: string, displayName?: string, virtualIP?: string}) => {
       // Prevent duplicate join messages
       setUsers((prev) => {
         if (prev.includes(data.userId)) return prev;
-        addSystemMessage(`${data.username || data.userId.slice(0, 4)} joined.`);
+        addSystemMessage(`${data.displayName || data.username || data.userId.slice(0, 4)} joined.`);
         return [...prev, data.userId];
       });
-      setUserMap(prev => new Map(prev).set(data.userId, data.username));
+      setUserMap(prev => new Map(prev).set(data.userId, { username: data.username, displayName: data.displayName }));
       if (data.virtualIP) {
           setIpMap(prev => new Map(prev).set(data.userId, data.virtualIP!));
       }
     });
 
     socket.on("user-disconnected", (leftUserId) => {
-      const name = userMap.get(leftUserId) || leftUserId.slice(0, 4);
+      const user = userMap.get(leftUserId);
+      const name = user?.displayName || user?.username || leftUserId.slice(0, 4);
       setUsers((prev) => prev.filter((id) => id !== leftUserId));
       setUserMap(prev => {
           const newMap = new Map(prev);
@@ -251,17 +254,21 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
         addSystemMessage("👑 You are now the Room Owner.");
     });
 
-    socket.on("receive-message", async (data: { message: { iv: number[]; data: number[] }; senderId: string; username?: string }) => {
+    socket.on("receive-message", async (data: { message: { iv: number[]; data: number[] }; senderId: string; username?: string, displayName?: string }) => {
       if (!roomKey) return;
       try {
         const decryptedJson = await decryptMessage(data.message, roomKey);
         const content = JSON.parse(decryptedJson);
         
         // Update map if we learn a new username
-        if (data.username && data.senderId) {
+        if (data.senderId && (data.username || data.displayName)) {
              setUserMap(prev => {
                  const newMap = new Map(prev);
-                 newMap.set(data.senderId, data.username!);
+                 const existing = newMap.get(data.senderId) || { username: data.senderId };
+                 newMap.set(data.senderId, { 
+                     username: data.username || existing.username, 
+                     displayName: data.displayName || existing.displayName 
+                 });
                  return newMap;
              });
         }
@@ -272,6 +279,7 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
             id: Math.random().toString(36),
             senderId: data.senderId,
             senderUsername: data.username, // Store received username
+            senderDisplayName: data.displayName, // Store received display name
             content,
             timestamp: Date.now(),
             type: "user",
@@ -449,13 +457,15 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
         roomId,
         message: payload,
         senderId: userId,
-        username // Include username in emit
+        username, // Include username in emit
+        displayName // Include display name
     });
     
     setMessages(prev => [...prev, {
         id: Math.random().toString(),
         senderId: userId,
         senderUsername: username, // Store local username
+        senderDisplayName: displayName,
         content,
         timestamp: Date.now(),
         type: "user"
@@ -489,13 +499,15 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
             roomId,
             message: encrypted,
             senderId: userId,
-            username // Include username
+            username, // Include username
+            displayName // Include display name
         });
 
         setMessages(prev => [...prev, {
             id: Math.random().toString(),
             senderId: userId,
             senderUsername: username, // Store local
+            senderDisplayName: displayName,
             content,
             timestamp: Date.now(),
             type: "user"
@@ -570,15 +582,19 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
                   <div key={u} className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-gray-800 group cursor-pointer relative" title={`Virtual IP: ${ipMap.get(u) || "Unknown"}`}>
                       <div className="relative">
                           <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold">
-                              {(userMap.get(u) || u.slice(0, 2)).toUpperCase().slice(0, 2)}
+                              {(userMap.get(u)?.displayName || userMap.get(u)?.username || u.slice(0, 2)).toUpperCase().slice(0, 2)}
                           </div>
                           <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-gray-900 rounded-full"></div>
                       </div>
                       <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-gray-300 truncate group-hover:text-white">
-                              {userMap.get(u) || u.slice(0, 8)}
+                              {userMap.get(u)?.displayName || userMap.get(u)?.username || u.slice(0, 8)}
                               {u === userId && <span className="ml-1 text-xs text-gray-500">(You)</span>}
                           </div>
+                          {/* Show unique username if different from display name */}
+                          {userMap.get(u)?.displayName && userMap.get(u)?.displayName !== userMap.get(u)?.username && (
+                              <div className="text-[10px] text-gray-500 truncate">@{userMap.get(u)?.username}</div>
+                          )}
                           {ipMap.get(u) && (
                               <div className="text-[10px] text-gray-500 font-mono hidden group-hover:block">
                                   {ipMap.get(u)}
@@ -591,12 +607,12 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
           <div className="p-3 bg-gray-925 border-t border-gray-800">
              <div className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-800 cursor-pointer" title={`Your Virtual IP: ${virtualIP}`}>
                 <div className="w-8 h-8 rounded-full bg-green-700 flex items-center justify-center font-bold text-xs">
-                    {username.slice(0,2).toUpperCase()}
+                    {(displayName || username).slice(0,2).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold truncate">{username}</div>
+                    <div className="text-xs font-bold truncate">{displayName || username}</div>
                     <div className="text-[10px] text-gray-400 truncate font-mono">
-                        {virtualIP || `#${userId.slice(0, 4)}`}
+                        {displayName && displayName !== username ? `@${username}` : `#${userId.slice(0, 4)}`}
                     </div>
                 </div>
                 <button onClick={onLeave} className="p-1 hover:bg-gray-700 rounded text-red-400">
@@ -665,7 +681,7 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
                     <div key={msg.id} className={clsx("group flex gap-4 px-2 hover:bg-black/5 py-0.5 -mx-2 rounded", showHeader ? "mt-4" : "")}>
                         {showHeader ? (
                             <div className="w-10 h-10 rounded-full bg-gray-600 flex-shrink-0 flex items-center justify-center text-sm font-bold text-white mt-0.5 cursor-pointer hover:opacity-80">
-                                {(msg.senderUsername || userMap.get(msg.senderId) || "?").slice(0, 2).toUpperCase()}
+                                {(msg.senderDisplayName || msg.senderUsername || userMap.get(msg.senderId)?.displayName || userMap.get(msg.senderId)?.username || "?").slice(0, 2).toUpperCase()}
                             </div>
                         ) : (
                             <div className="w-10 flex-shrink-0 text-[10px] text-gray-500 opacity-0 group-hover:opacity-100 text-right pr-1 select-none pt-1">
@@ -677,7 +693,7 @@ export default function Chat({ roomId, roomName, userId, username, virtualIP, sa
                             {showHeader && (
                                 <div className="flex items-baseline gap-2">
                                     <span className="font-medium text-gray-100 hover:underline cursor-pointer">
-                                        {msg.senderUsername || userMap.get(msg.senderId) || "Unknown"}
+                                        {msg.senderDisplayName || msg.senderUsername || userMap.get(msg.senderId)?.displayName || userMap.get(msg.senderId)?.username || "Unknown"}
                                     </span>
                                     <span className="text-xs text-gray-500 ml-1">
                                         {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString()}

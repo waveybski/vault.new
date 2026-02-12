@@ -13,17 +13,19 @@ interface SavedRoom {
   name?: string; // Optional custom name
   lastActive: number;
   userId?: string; // Saved credentials
-  username?: string; // Saved credentials
+  username?: string; // Saved credentials (acts as display name if no displayName set)
+  displayName?: string; // New: Display Name
 }
 
 function ChatEntry() {
   const [joined, setJoined] = useState(false);
   const [roomId, setRoomId] = useState("");
-  const [customRoomId, setCustomRoomId] = useState(""); // For custom room ID input
-  const [roomName, setRoomName] = useState(""); // For new room creation
-  const [username, setUsername] = useState("");
-  const [userId, setUserId] = useState(""); // Initialize empty
-  const [virtualIP, setVirtualIP] = useState(""); // Store assigned virtual IP
+  const [customRoomId, setCustomRoomId] = useState(""); 
+  const [roomName, setRoomName] = useState(""); 
+  const [username, setUsername] = useState(""); // This is now the "Unique Username" (handle)
+  const [displayName, setDisplayName] = useState(""); // This is the "Display Name"
+  const [userId, setUserId] = useState(""); 
+  const [virtualIP, setVirtualIP] = useState(""); 
   const [savedRooms, setSavedRooms] = useState<SavedRoom[]>([]);
   const [saveMessages, setSaveMessages] = useState(false);
   const [error, setError] = useState("");
@@ -33,8 +35,24 @@ function ChatEntry() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    setUserId(uuidv4()); // Generate ID on client side only
+    setUserId(uuidv4()); 
+    // Load global profile
+    const savedProfile = localStorage.getItem("vault_profile");
+    if (savedProfile) {
+        try {
+            const p = JSON.parse(savedProfile);
+            if (p.username) setUsername(p.username);
+            if (p.displayName) setDisplayName(p.displayName);
+        } catch(e) {}
+    }
   }, []);
+
+  // Save profile on change
+  useEffect(() => {
+      if (username || displayName) {
+          localStorage.setItem("vault_profile", JSON.stringify({ username, displayName }));
+      }
+  }, [username, displayName]);
 
   useEffect(() => {
     const room = searchParams.get("room");
@@ -85,6 +103,7 @@ function ChatEntry() {
       const existingRoom = savedRooms.find(r => r.id === id);
       const effectiveUserId = existingRoom?.userId || userId || uuidv4();
       const effectiveUsername = existingRoom?.username || username;
+      const effectiveDisplayName = existingRoom?.displayName || displayName || effectiveUsername;
 
       if (!effectiveUsername) {
           // If we are joining manually and have no saved credential, we need a username
@@ -95,6 +114,7 @@ function ChatEntry() {
       // Update state with effective credentials if we are using saved ones
       if (effectiveUserId !== userId) setUserId(effectiveUserId);
       if (effectiveUsername !== username) setUsername(effectiveUsername);
+      if (effectiveDisplayName !== displayName) setDisplayName(effectiveDisplayName);
 
       // Relaxed check: Try to join. If room doesn't exist, server will create it.
       // This fixes the issue where invite links fail if the room is empty/ephemeral.
@@ -107,11 +127,11 @@ function ChatEntry() {
       // Actually, we pass effectiveUserId directly to emit, so state update lag shouldn't matter for the emit itself.
       // But we need to ensure finalizeJoin uses the correct ID.
 
-      socket.emit("join-room", id, effectiveUserId, effectiveUsername, (response: any) => {
+      socket.emit("join-room", id, effectiveUserId, effectiveUsername, effectiveDisplayName, (response: any) => {
            // This callback runs if immediate entry is allowed or if we get room info
            if (response) {
                // We must pass the EFFECTIVE credentials to finalizeJoin, not the state ones (which might be stale)
-               finalizeJoin(id, name || id, effectiveUserId, effectiveUsername, response.virtualIP);
+               finalizeJoin(id, name || id, effectiveUserId, effectiveUsername, effectiveDisplayName, response.virtualIP);
            }
       });
 
@@ -121,7 +141,7 @@ function ChatEntry() {
 
       socket.on("join-approved", (data: any) => {
           setIsWaiting(false);
-          finalizeJoin(id, name || id, effectiveUserId, effectiveUsername, data?.virtualIP);
+          finalizeJoin(id, name || id, effectiveUserId, effectiveUsername, effectiveDisplayName, data?.virtualIP);
       });
 
       socket.on("join-rejected", () => {
@@ -131,7 +151,7 @@ function ChatEntry() {
       });
   };
 
-  const finalizeJoin = (id: string, name: string, uid: string, uname: string, vIP?: string) => {
+  const finalizeJoin = (id: string, name: string, uid: string, uname: string, dname: string, vIP?: string) => {
       // Always save room ID to history
       const newSaved = savedRooms.filter(r => r.id !== id);
       // Preserve existing name if known, otherwise use ID
@@ -143,7 +163,8 @@ function ChatEntry() {
           name: finalName, 
           lastActive: Date.now(),
           userId: uid, 
-          username: uname 
+          username: uname,
+          displayName: dname
       });
       setSavedRooms(newSaved);
       localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
@@ -208,7 +229,7 @@ function ChatEntry() {
   };
 
   if (joined) {
-    return <Chat roomId={roomId} roomName={roomName || roomId} userId={userId} username={username} virtualIP={virtualIP} saveMessages={saveMessages} onLeave={() => setJoined(false)} />;
+    return <Chat roomId={roomId} roomName={roomName || roomId} userId={userId} username={username} displayName={displayName || username} virtualIP={virtualIP} saveMessages={saveMessages} onLeave={() => setJoined(false)} />;
   }
 
   return (
@@ -299,15 +320,27 @@ function ChatEntry() {
                     </div>
                     
                     <div className="bg-[#2b2d31]/90 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-gray-700/50">
-                        <div className="mb-8">
-                            <label className="text-sm font-bold text-gray-300 uppercase mb-2 block tracking-wide">Identity</label>
-                            <input
-                                type="text"
-                                className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all font-medium text-lg placeholder-gray-600"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                placeholder="Enter your display name..."
-                            />
+                        <div className="mb-8 space-y-4">
+                            <div>
+                                <label className="text-sm font-bold text-gray-300 uppercase mb-2 block tracking-wide">Username (Unique ID)</label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all font-medium text-lg placeholder-gray-600"
+                                    value={username}
+                                    onChange={(e) => setUsername(e.target.value)}
+                                    placeholder="Enter your unique username..."
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-bold text-gray-300 uppercase mb-2 block tracking-wide">Display Name (Optional)</label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all font-medium text-lg placeholder-gray-600"
+                                    value={displayName}
+                                    onChange={(e) => setDisplayName(e.target.value)}
+                                    placeholder="Name seen in chat..."
+                                />
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
