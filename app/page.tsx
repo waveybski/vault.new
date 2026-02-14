@@ -52,6 +52,14 @@ function ChatEntry() {
   const socketRef = useRef<Socket | null>(null);
   const searchParams = useSearchParams();
 
+  const [showSettings, setShowSettings] = useState(false);
+  const [showFriends, setShowFriends] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
+  const [friendSearch, setFriendSearch] = useState("");
+  const [friendResults, setFriendResults] = useState<any[]>([]);
+  const [friendsList, setFriendsList] = useState<any[]>([]);
+  const [friendRequests, setFriendRequests] = useState<any[]>([]);
+
   // Load Session
   useEffect(() => {
     const savedSession = localStorage.getItem("vault_session");
@@ -267,6 +275,90 @@ function ChatEntry() {
     return <Chat roomId={roomId} roomName={roomName} userId={currentUser.userId} username={currentUser.username} displayName={currentUser.username} saveMessages={saveMessages} onLeave={() => { setJoined(false); setView('dashboard'); }} onNuke={() => { removeRoom(roomId); setJoined(false); setView('dashboard'); }} />;
   }
 
+  const fetchFriends = async () => {
+      if (!currentUser) return;
+      try {
+          const res = await fetch(`/api/user/friends?userId=${currentUser.userId}`);
+          const data = await res.json();
+          if (data.friends) setFriendsList(data.friends);
+          if (data.requests) setFriendRequests(data.requests);
+      } catch(e) {}
+  };
+
+  useEffect(() => {
+      if (showFriends) fetchFriends();
+  }, [showFriends]);
+
+  const updateProfile = async () => {
+      if (!newUsername.trim()) return alert("Username cannot be empty");
+      const phrase = prompt("Enter your Identity Phrase to confirm:");
+      if (!phrase) return;
+
+      try {
+          const res = await fetch('/api/user/profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phrase, newUsername })
+          });
+          const data = await res.json();
+          if (res.ok) {
+              alert("Profile Updated.");
+              setCurrentUser(prev => prev ? ({ ...prev, username: data.newUsername }) : null);
+              localStorage.setItem("vault_session", JSON.stringify({ ...currentUser, username: data.newUsername }));
+              setNewUsername("");
+              setShowSettings(false);
+          } else {
+              alert(data.error);
+          }
+      } catch (e) { alert("Failed to update."); }
+  };
+
+  const searchForFriend = async (query: string) => {
+      setFriendSearch(query);
+      if (query.length < 2) { setFriendResults([]); return; }
+      try {
+          const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+          const data = await res.json();
+          if (data.users) setFriendResults(data.users);
+      } catch(e) {}
+  };
+
+  const sendFriendRequest = async (receiverId: string) => {
+      if (!currentUser) return;
+      try {
+          const res = await fetch('/api/user/friends', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ senderId: currentUser.userId, receiverId })
+          });
+          const data = await res.json();
+          if (res.ok) { alert("Request Sent."); setFriendSearch(""); setFriendResults([]); }
+          else alert(data.error);
+      } catch(e) {}
+  };
+
+  const handleRequest = async (requestId: string, action: 'accept' | 'reject') => {
+      try {
+          await fetch('/api/user/friends', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ requestId, action })
+          });
+          fetchFriends();
+      } catch(e) {}
+  };
+
+  const startDM = (friend: any) => {
+      // DMs are just rooms with a specific ID convention or random
+      // Let's make a deterministic room ID based on sorted user IDs so they always find each other
+      if (!currentUser) return;
+      const ids = [currentUser.userId, friend.friend_id].sort();
+      const dmRoomId = `dm_${ids[0]}_${ids[1]}`;
+      const dmName = `DM: ${friend.username}`;
+      
+      finalizeJoin(dmRoomId, dmName, currentUser.userId, currentUser.username, currentUser.username);
+  };
+
   // Auth Screen
   if (view === 'auth') {
       return (
@@ -371,17 +463,111 @@ function ChatEntry() {
                               {currentUser?.isAdmin ? "ADMINISTRATOR" : "ONLINE_SECURE"}
                           </div>
                       </div>
+                      <button onClick={() => setShowSettings(!showSettings)} className="text-gray-500 hover:text-white"><Settings className="w-4 h-4" /></button>
                   </div>
               </div>
           </div>
 
           {/* Main Area */}
-          <div className="flex-1 flex flex-col bg-[#050505]">
+          <div className="flex-1 flex flex-col bg-[#050505] overflow-y-auto">
               <div className="p-8 max-w-4xl mx-auto w-full space-y-8">
-                  <div className="text-center space-y-2">
+                  <div className="text-center space-y-2 relative">
                       <h2 className="text-2xl font-bold text-white tracking-tight">Command Center</h2>
                       <p className="text-gray-600">Establish secure connection or locate operatives.</p>
+                      
+                      {/* Friends Toggle */}
+                      <button onClick={() => { setShowFriends(!showFriends); fetchFriends(); }} className="absolute right-0 top-0 text-xs flex items-center gap-1 bg-[#111] px-3 py-1 rounded border border-[#222] hover:bg-[#222]">
+                          <UserPlus className="w-3 h-3" /> Friends / Requests
+                      </button>
                   </div>
+
+                  {/* Settings Modal */}
+                  {showSettings && (
+                      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm">
+                          <div className="bg-[#111] border border-[#333] p-6 rounded-lg w-full max-w-md">
+                              <h3 className="text-lg font-bold text-white mb-4">Operative Profile</h3>
+                              <div className="space-y-4">
+                                  <div>
+                                      <label className="text-xs text-gray-500 uppercase">Current Codename</label>
+                                      <div className="text-green-500 font-mono text-lg">{currentUser?.username}</div>
+                                  </div>
+                                  <div>
+                                      <label className="text-xs text-gray-500 uppercase">New Codename</label>
+                                      <input 
+                                          type="text" 
+                                          className="w-full bg-[#0a0a0a] border border-[#333] p-2 rounded text-white"
+                                          value={newUsername}
+                                          onChange={(e) => setNewUsername(e.target.value)}
+                                      />
+                                  </div>
+                                  <div className="flex justify-end gap-2 mt-4">
+                                      <button onClick={() => setShowSettings(false)} className="px-4 py-2 text-xs text-gray-400 hover:text-white">Cancel</button>
+                                      <button onClick={updateProfile} className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded text-xs font-bold">Update Identity</button>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  )}
+
+                  {/* Friends Panel */}
+                  {showFriends && (
+                      <div className="bg-[#111] border border-[#222] rounded p-4 mb-6">
+                          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center gap-2"><UserPlus className="w-4 h-4" /> Secure Contacts</h3>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Search & Add */}
+                              <div>
+                                  <input 
+                                      type="text" 
+                                      className="w-full bg-[#0a0a0a] border border-[#333] p-2 rounded text-white text-sm mb-2"
+                                      placeholder="Find operative to add..."
+                                      value={friendSearch}
+                                      onChange={(e) => searchForFriend(e.target.value)}
+                                  />
+                                  {friendResults.length > 0 && (
+                                      <div className="bg-[#0a0a0a] border border-[#222] rounded max-h-32 overflow-y-auto">
+                                          {friendResults.map(u => (
+                                              <div key={u.user_id} className="p-2 flex justify-between items-center hover:bg-[#1a1a1a]">
+                                                  <span className="text-sm text-gray-300">{u.username}</span>
+                                                  <button onClick={() => sendFriendRequest(u.user_id)} className="text-xs bg-blue-900/30 text-blue-400 px-2 py-1 rounded hover:bg-blue-900/50">Add</button>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  )}
+                              </div>
+
+                              {/* Requests */}
+                              <div>
+                                  <h4 className="text-xs text-gray-500 uppercase mb-2">Incoming Requests</h4>
+                                  {friendRequests.length === 0 && <div className="text-xs text-gray-600 italic">No pending requests</div>}
+                                  {friendRequests.map(req => (
+                                      <div key={req.id} className="flex items-center justify-between bg-[#1a1a1a] p-2 rounded mb-1">
+                                          <span className="text-sm text-white">{req.username}</span>
+                                          <div className="flex gap-1">
+                                              <button onClick={() => handleRequest(req.id, 'accept')} className="text-green-500 hover:bg-green-900/30 p-1 rounded"><ShieldCheck className="w-3 h-3" /></button>
+                                              <button onClick={() => handleRequest(req.id, 'reject')} className="text-red-500 hover:bg-red-900/30 p-1 rounded"><CloseIcon className="w-3 h-3" /></button>
+                                          </div>
+                                      </div>
+                                  ))}
+                              </div>
+                          </div>
+
+                          <div className="mt-4 border-t border-[#222] pt-4">
+                              <h4 className="text-xs text-gray-500 uppercase mb-2">Your Friends</h4>
+                              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                  {friendsList.map(f => (
+                                      <div key={f.friend_id} onClick={() => startDM(f)} className="bg-[#1a1a1a] p-2 rounded flex items-center gap-2 cursor-pointer hover:bg-[#222]">
+                                          <div className="w-6 h-6 bg-green-900/20 rounded-full flex items-center justify-center text-xs text-green-500 font-bold">
+                                              {f.username.slice(0,1).toUpperCase()}
+                                          </div>
+                                          <span className="text-sm text-gray-300 truncate">{f.username}</span>
+                                      </div>
+                                  ))}
+                                  {friendsList.length === 0 && <div className="text-xs text-gray-600 italic col-span-2">No contacts established.</div>}
+                              </div>
+                          </div>
+                      </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {/* Admin Panel */}
