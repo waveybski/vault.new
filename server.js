@@ -12,14 +12,16 @@ const port = parseInt(process.env.PORT || "3000", 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-// Initialize DB Table
+// Initialize DB Table (Async, but don't block server start strictly if it takes time, though it might fail first requests)
+// Ideally we wait, but for now let's just log.
 db.query(`
   CREATE TABLE IF NOT EXISTS rooms (
     id SERIAL PRIMARY KEY,
     room_id TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
-`).catch(err => console.error("Failed to init DB:", err));
+`).then(() => console.log("DB Rooms Table Verified"))
+  .catch(err => console.error("Failed to init DB (non-fatal for dev):", err));
 
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
