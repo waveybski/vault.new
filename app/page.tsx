@@ -1,444 +1,434 @@
-
 "use client";
 
 import { useState, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import Chat from "@/components/Chat";
-import { Clock, Settings, X as CloseIcon, Loader2 } from "lucide-react";
+import { Clock, Settings, X as CloseIcon, Loader2, ShieldCheck, UserPlus, Search, Terminal, Lock } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 
 interface SavedRoom {
   id: string;
-  name?: string; // Optional custom name
+  name?: string; 
   lastActive: number;
-  userId?: string; // Saved credentials
-  username?: string; // Saved credentials (acts as display name if no displayName set)
-  displayName?: string; // New: Display Name
+  userId?: string; 
+  username?: string; 
+  displayName?: string; 
+}
+
+interface User {
+  userId: string;
+  username: string;
 }
 
 function ChatEntry() {
+  const [view, setView] = useState<'auth' | 'dashboard' | 'chat'>('auth');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  
+  // Auth State
+  const [passphrase, setPassphrase] = useState("");
+  const [username, setUsername] = useState(""); // Desired username for register
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authError, setAuthError] = useState("");
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  // Dashboard State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Chat State
   const [joined, setJoined] = useState(false);
   const [roomId, setRoomId] = useState("");
-  const [customRoomId, setCustomRoomId] = useState(""); 
   const [roomName, setRoomName] = useState(""); 
-  const [username, setUsername] = useState(""); // This is now the "Unique Username" (handle)
-  const [displayName, setDisplayName] = useState(""); // This is the "Display Name"
-  const [userId, setUserId] = useState(""); 
-  const [virtualIP, setVirtualIP] = useState(""); 
   const [savedRooms, setSavedRooms] = useState<SavedRoom[]>([]);
   const [saveMessages, setSaveMessages] = useState(false);
-  const [error, setError] = useState("");
   const [isWaiting, setIsWaiting] = useState(false);
+  const [error, setError] = useState("");
+  
+  // Connection
   const socketRef = useRef<Socket | null>(null);
-
   const searchParams = useSearchParams();
 
+  // Load Session
   useEffect(() => {
-    setUserId(uuidv4()); 
-    // Load global profile
-    const savedProfile = localStorage.getItem("vault_profile");
-    if (savedProfile) {
+    const savedSession = localStorage.getItem("vault_session");
+    if (savedSession) {
         try {
-            const p = JSON.parse(savedProfile);
-            if (p.username) setUsername(p.username);
-            if (p.displayName) setDisplayName(p.displayName);
+            const user = JSON.parse(savedSession);
+            if (user && user.userId && user.username) {
+                setCurrentUser(user);
+                setView('dashboard');
+                // Load user-specific rooms
+                const saved = localStorage.getItem(`vault_rooms_${user.userId}`);
+                if (saved) {
+                    try { setSavedRooms(JSON.parse(saved)); } catch (e) {}
+                }
+            }
         } catch(e) {}
     }
   }, []);
 
-  // Save profile on change
+  // When user changes (login), load their rooms
   useEffect(() => {
-      if (username || displayName) {
-          localStorage.setItem("vault_profile", JSON.stringify({ username, displayName }));
+      if (currentUser) {
+          const saved = localStorage.getItem(`vault_rooms_${currentUser.userId}`);
+          if (saved) {
+              try { setSavedRooms(JSON.parse(saved)); } catch (e) {}
+          } else {
+              setSavedRooms([]);
+          }
       }
-  }, [username, displayName]);
+  }, [currentUser]);
 
-  useEffect(() => {
-    const room = searchParams.get("room");
-    if (room) {
-      setRoomId(room);
-      // Auto-join logic if profile exists
-      if (username) {
-          // Small delay to ensure state is settled
-          setTimeout(() => {
-             // Only auto-join if not already joined/waiting
-             if (!joined && !isWaiting) {
-                 handleJoin(room);
-             }
-          }, 500);
+  // Handle Login
+  const handleLogin = async () => {
+      if (!passphrase.trim()) {
+          setAuthError("Identity Phrase Required");
+          return;
       }
-    }
-    
-    // Load saved rooms
-    const saved = localStorage.getItem("vault_rooms");
-    if (saved) {
-        try {
-            setSavedRooms(JSON.parse(saved));
-        } catch (e) {
-            // console.error("Failed to load saved rooms", e);
-        }
-    }
-    
-    // Load settings
-    const settings = localStorage.getItem("vault_settings");
-    if (settings) {
-        try {
-            const parsed = JSON.parse(settings);
-            if (typeof parsed.saveMessages === 'boolean') setSaveMessages(parsed.saveMessages);
-        } catch (e) {}
-    }
-  }, [searchParams]);
+      setIsAuthenticating(true);
+      setAuthError("");
 
-  const checkRoomExists = async (id: string): Promise<boolean> => {
-      return new Promise((resolve) => {
-          const socket = io({ path: "/socket.io", addTrailingSlash: false });
-          socket.emit("check-room", id, (exists: boolean) => {
-              socket.disconnect();
-              resolve(exists);
+      try {
+          const res = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phrase: passphrase })
           });
-          // Fallback timeout
-          setTimeout(() => {
-              socket.disconnect();
-              resolve(false);
-          }, 2000);
-      });
+          const data = await res.json();
+          
+          if (res.ok && data.found) {
+              const user = data.user;
+              setCurrentUser(user);
+              localStorage.setItem("vault_session", JSON.stringify(user));
+              setView('dashboard');
+              setPassphrase(""); // Clear secret
+          } else {
+              // Phrase not found, switch to register
+              setAuthMode('register');
+              setAuthError("Identity Not Recognized. Initialize New Protocol?");
+          }
+      } catch (err) {
+          setAuthError("Connection Failed. Retrying...");
+      } finally {
+          setIsAuthenticating(false);
+      }
   };
 
-  const handleJoin = async (id: string = roomId) => {
-      const trimmedId = id?.trim(); // Ensure no trailing spaces
-      if (!trimmedId) return; 
+  // Handle Register
+  const handleRegister = async () => {
+      if (!username.trim()) {
+          setAuthError("Codename Required");
+          return;
+      }
+      setIsAuthenticating(true);
+      setAuthError("");
+
+      try {
+          const res = await fetch('/api/auth/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phrase: passphrase, username })
+          });
+          const data = await res.json();
+          
+          if (res.ok && data.success) {
+              const user = data.user;
+              setCurrentUser(user);
+              localStorage.setItem("vault_session", JSON.stringify(user));
+              setView('dashboard');
+              setPassphrase(""); 
+          } else {
+              setAuthError(data.error || "Registration Failed");
+          }
+      } catch (err) {
+          setAuthError("Registration Error");
+      } finally {
+          setIsAuthenticating(false);
+      }
+  };
+
+  // Search Users
+  const handleSearch = async (query: string) => {
+      setSearchQuery(query);
+      if (query.length < 2) {
+          setSearchResults([]);
+          return;
+      }
+      setIsSearching(true);
+      try {
+          const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+          const data = await res.json();
+          if (data.users) setSearchResults(data.users);
+      } catch(e) {} finally {
+          setIsSearching(false);
+      }
+  };
+
+  // Join Logic (Adapted from previous)
+  const handleJoin = async (id: string) => {
+      const trimmedId = id?.trim();
+      if (!trimmedId || !currentUser) return; 
       setError("");
 
-      // Cleanup any previous socket connection attempt
       if (socketRef.current) {
           socketRef.current.disconnect();
           socketRef.current = null;
       }
 
-      // Check if we have saved credentials for this room
       const existingRoom = savedRooms.find(r => r.id === trimmedId);
-      const effectiveUserId = existingRoom?.userId || userId || uuidv4();
-      const effectiveUsername = existingRoom?.username || username;
-      const effectiveDisplayName = existingRoom?.displayName || displayName || effectiveUsername;
-
-      if (!effectiveUsername) {
-          // If we are joining manually and have no saved credential, we need a username
-          setError("Please enter a username.");
-          return;
-      }
+      // Use DB User ID
+      const effectiveUserId = currentUser.userId;
+      const effectiveUsername = currentUser.username;
       
-      // Update state with effective credentials if we are using saved ones
-      if (effectiveUserId !== userId) setUserId(effectiveUserId);
-      if (effectiveUsername !== username) setUsername(effectiveUsername);
-      if (effectiveDisplayName !== displayName) setDisplayName(effectiveDisplayName);
-
-      // Relaxed check: Try to join. If room doesn't exist, server will create it.
-      // This fixes the issue where invite links fail if the room is empty/ephemeral.
-      
-      // LISTEN for approval status BEFORE proceeding
       const socket = io({ path: "/socket.io", addTrailingSlash: false });
       socketRef.current = socket;
 
       socket.on("connect", () => {
-          // Emit join only after connection is established
-          socket.emit("join-room", trimmedId, effectiveUserId, effectiveUsername, effectiveDisplayName, (response: any) => {
+          socket.emit("join-room", trimmedId, effectiveUserId, effectiveUsername, effectiveUsername, (response: any) => {
                if (response) {
-                   const resolvedName = existingRoom?.name || roomName || trimmedId;
-                   finalizeJoin(trimmedId, resolvedName, effectiveUserId, effectiveUsername, effectiveDisplayName, response.virtualIP);
+                   const resolvedName = existingRoom?.name || trimmedId;
+                   finalizeJoin(trimmedId, resolvedName, effectiveUserId, effectiveUsername, effectiveUsername, response.virtualIP);
                }
           });
       });
 
-      socket.on("waiting-approval", () => {
-          setIsWaiting(true);
-      });
-
+      socket.on("waiting-approval", () => setIsWaiting(true));
       socket.on("join-approved", (data: any) => {
           setIsWaiting(false);
-          const resolvedName = existingRoom?.name || roomName || trimmedId;
-          finalizeJoin(trimmedId, resolvedName, effectiveUserId, effectiveUsername, effectiveDisplayName, data?.virtualIP);
+          const resolvedName = existingRoom?.name || trimmedId;
+          finalizeJoin(trimmedId, resolvedName, effectiveUserId, effectiveUsername, effectiveUsername, data?.virtualIP);
       });
-
       socket.on("join-rejected", () => {
           setIsWaiting(false);
-          setError("Access Denied: The room owner rejected your request.");
+          setError("Access Denied.");
           socket.disconnect();
       });
-
-      // Handle whitelist approval while waiting
-      // If we are waiting and suddenly get approved (because host added us), we need to react
-      // The server emits 'join-approved' in this case too, so the listener above handles it.
-      // BUT, we need to make sure we don't disconnect prematurely.
   };
 
   const finalizeJoin = (id: string, name: string, uid: string, uname: string, dname: string, vIP?: string) => {
-      // Always save room ID to history
+      if (!currentUser) return;
       const newSaved = savedRooms.filter(r => r.id !== id);
-      // Preserve existing name if known, otherwise use ID
-      const existing = savedRooms.find(r => r.id === id);
-      const finalName = existing?.name || name;
-      
       newSaved.unshift({ 
           id, 
-          name: finalName, 
+          name, 
           lastActive: Date.now(),
           userId: uid, 
           username: uname,
           displayName: dname
       });
       setSavedRooms(newSaved);
-      localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
+      localStorage.setItem(`vault_rooms_${currentUser.userId}`, JSON.stringify(newSaved));
       
       setRoomId(id);
-      setRoomName(finalName); // Pass name to chat
-      if (vIP) setVirtualIP(vIP);
+      setRoomName(name);
       
-      // Close temp socket used for negotiation, real Chat component will open its own
       if (socketRef.current) socketRef.current.disconnect();
-      
       setJoined(true);
-  };
-
-  const handleCreate = () => {
-      if (!username) return;
-      // Use custom ID if provided, otherwise generate UUID
-      const newRoomId = customRoomId.trim() || uuidv4();
-      const name = roomName.trim() || newRoomId; // Use ID as name if empty
-      const uid = userId || uuidv4();
-      
-      // No need to check existence for new room
-      const newSaved = savedRooms.filter(r => r.id !== newRoomId);
-      // const timestamp = new Date().getTime(); // Duplicate variable removed
-      newSaved.unshift({ 
-          id: newRoomId, 
-          name, 
-          lastActive: Date.now(),
-          userId: uid,
-          username: username
-      });
-      setSavedRooms(newSaved);
-      localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
-
-      setRoomId(newRoomId);
-      setUserId(uid);
-      // setRoomName is already set by input
-      setJoined(true);
+      setView('chat');
   };
 
   const removeRoom = (id: string) => {
+      if (!currentUser) return;
       const newSaved = savedRooms.filter(r => r.id !== id);
       setSavedRooms(newSaved);
-      localStorage.setItem("vault_rooms", JSON.stringify(newSaved));
-      // Also clear saved messages for this room
+      localStorage.setItem(`vault_rooms_${currentUser.userId}`, JSON.stringify(newSaved));
       localStorage.removeItem(`vault_msgs_${id}`);
   };
 
-  const deleteRoom = (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      removeRoom(id);
+  const handleCreate = () => {
+     if (!currentUser) return;
+     const newId = uuidv4();
+     finalizeJoin(newId, newId, currentUser.userId, currentUser.username, currentUser.username);
   };
 
-  const toggleSettings = () => {
-      const newState = !saveMessages;
-      setSaveMessages(newState);
-      localStorage.setItem("vault_settings", JSON.stringify({ saveMessages: newState }));
-      if (!newState) {
-          if (confirm("Turn off message persistence? This will NOT delete existing saved messages, but new ones won't be saved.")) {
-              // Optional: Clear all saved messages? No, user just said stop saving.
-          } else {
-              setSaveMessages(true); // Revert if cancelled
-              localStorage.setItem("vault_settings", JSON.stringify({ saveMessages: true }));
-          }
-      }
+  const logout = () => {
+      localStorage.removeItem("vault_session");
+      setCurrentUser(null);
+      setView('auth');
+      setAuthMode('login');
   };
 
-  if (joined) {
-    return <Chat roomId={roomId} roomName={roomName || roomId} userId={userId} username={username} displayName={displayName || username} virtualIP={virtualIP} saveMessages={saveMessages} onLeave={() => setJoined(false)} onNuke={() => { removeRoom(roomId); setJoined(false); }} />;
+  if (view === 'chat' && currentUser) {
+    return <Chat roomId={roomId} roomName={roomName} userId={currentUser.userId} username={currentUser.username} displayName={currentUser.username} saveMessages={saveMessages} onLeave={() => { setJoined(false); setView('dashboard'); }} onNuke={() => { removeRoom(roomId); setJoined(false); setView('dashboard'); }} />;
   }
 
+  // Auth Screen
+  if (view === 'auth') {
+      return (
+          <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col items-center justify-center p-4">
+              <div className="w-full max-w-md space-y-8">
+                  <div className="text-center space-y-2">
+                      <ShieldCheck className="w-16 h-16 mx-auto animate-pulse text-green-600" />
+                      <h1 className="text-3xl font-bold tracking-widest uppercase">Vault Protocol</h1>
+                      <p className="text-xs text-green-800">Military Grade Encrypted Communication</p>
+                  </div>
+
+                  <div className="bg-gray-900/50 border border-green-900 p-8 rounded-lg shadow-2xl backdrop-blur-sm">
+                      {authMode === 'login' ? (
+                          <div className="space-y-6">
+                              <div>
+                                  <label className="block text-xs uppercase tracking-widest mb-2 text-green-700">Identity Phrase</label>
+                                  <textarea 
+                                      className="w-full bg-black border border-green-800 text-green-400 p-4 rounded focus:outline-none focus:border-green-500 transition-colors text-sm"
+                                      rows={3}
+                                      placeholder="ENTER SECURE PHRASE..."
+                                      value={passphrase}
+                                      onChange={(e) => setPassphrase(e.target.value)}
+                                  />
+                              </div>
+                              <button 
+                                  onClick={handleLogin}
+                                  disabled={isAuthenticating}
+                                  className="w-full bg-green-900/30 hover:bg-green-800/50 text-green-400 border border-green-700 py-3 rounded uppercase tracking-widest font-bold transition-all flex items-center justify-center gap-2"
+                              >
+                                  {isAuthenticating ? <Loader2 className="animate-spin" /> : <><Terminal className="w-4 h-4" /> Authenticate</>}
+                              </button>
+                          </div>
+                      ) : (
+                          <div className="space-y-6">
+                              <div className="text-center text-xs text-green-600 border-b border-green-900 pb-4">
+                                  NEW IDENTITY DETECTED
+                              </div>
+                              <div>
+                                  <label className="block text-xs uppercase tracking-widest mb-2 text-green-700">Assign Codename</label>
+                                  <input 
+                                      type="text"
+                                      className="w-full bg-black border border-green-800 text-green-400 p-4 rounded focus:outline-none focus:border-green-500 transition-colors text-lg font-bold"
+                                      placeholder="USERNAME"
+                                      value={username}
+                                      onChange={(e) => setUsername(e.target.value)}
+                                  />
+                              </div>
+                              <button 
+                                  onClick={handleRegister}
+                                  disabled={isAuthenticating}
+                                  className="w-full bg-green-900/30 hover:bg-green-800/50 text-green-400 border border-green-700 py-3 rounded uppercase tracking-widest font-bold transition-all flex items-center justify-center gap-2"
+                              >
+                                  {isAuthenticating ? <Loader2 className="animate-spin" /> : <><Lock className="w-4 h-4" /> Initialize Account</>}
+                              </button>
+                              <button onClick={() => setAuthMode('login')} className="w-full text-xs text-green-800 hover:text-green-600 uppercase">Cancel</button>
+                          </div>
+                      )}
+
+                      {authError && (
+                          <div className="mt-4 p-3 bg-red-900/20 border border-red-900 text-red-500 text-xs text-center font-bold">
+                              ⚠ {authError}
+                          </div>
+                      )}
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
+  // Dashboard
   return (
-    <div className="flex h-screen bg-[#313338] text-white overflow-hidden font-sans">
-      {/* Sidebar - Your Chats */}
-      <div className="w-[72px] md:w-64 bg-[#2b2d31] flex flex-col flex-shrink-0">
-          <div className="h-12 border-b border-[#1f2023] flex items-center justify-center md:justify-start md:px-4 shadow-sm">
-             <div className="md:hidden font-bold text-green-500">V</div>
-             <div className="hidden md:block font-bold text-base text-gray-200">Vault</div>
+      <div className="flex h-screen bg-[#0a0a0a] text-gray-300 font-sans overflow-hidden">
+          {/* Sidebar */}
+          <div className="w-64 bg-[#111] border-r border-[#222] flex flex-col">
+              <div className="p-4 border-b border-[#222] flex items-center justify-between">
+                  <div className="font-bold text-green-600 tracking-wider">VAULT</div>
+                  <button onClick={logout} className="text-xs text-gray-600 hover:text-red-500">EXIT</button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-2">
+                  <div className="text-xs font-bold text-gray-600 uppercase px-2 mb-2 mt-2">Servers You Are In</div>
+                  {savedRooms.map(room => (
+                      <div key={room.id} onClick={() => handleJoin(room.id)} className="flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1a1a1a] cursor-pointer group">
+                          <div className="w-8 h-8 rounded bg-[#222] flex items-center justify-center text-green-700 font-bold group-hover:text-green-500">
+                              {room.name?.slice(0,1).toUpperCase() || "#"}
+                          </div>
+                          <div className="flex-1 truncate text-sm font-medium">{room.name || "Unknown Server"}</div>
+                          <button onClick={(e) => { e.stopPropagation(); removeRoom(room.id); }} className="text-gray-700 hover:text-red-500 opacity-0 group-hover:opacity-100"><CloseIcon className="w-3 h-3" /></button>
+                      </div>
+                  ))}
+                  {savedRooms.length === 0 && <div className="px-4 text-xs text-gray-700">No Active Uplinks</div>}
+              </div>
+
+              <div className="p-4 border-t border-[#222]">
+                  <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded bg-green-900/20 flex items-center justify-center text-green-500 font-bold">
+                          {currentUser?.username.slice(0,1).toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                          <div className="text-sm font-bold text-white">{currentUser?.username}</div>
+                          <div className="text-[10px] text-green-800">ONLINE_SECURE</div>
+                      </div>
+                  </div>
+              </div>
           </div>
-          
-          <div className="flex-1 overflow-y-auto p-2 space-y-0.5 custom-scrollbar">
-             {savedRooms.length > 0 && (
-                <div className="hidden md:block text-xs font-bold text-gray-400 uppercase mb-2 mt-2 px-2 tracking-wide">
-                    Servers You Are In
-                </div>
-             )}
-             
-             {savedRooms.map(room => (
-                 <div 
-                    key={room.id}
-                    onClick={() => handleJoin(room.id)}
-                    className={`group relative flex items-center gap-3 px-2 py-2 rounded-md hover:bg-[#35373c] cursor-pointer transition-all ${roomId === room.id ? 'bg-[#35373c] text-white' : 'text-gray-400'}`}
-                 >
-                    {/* Discord-like pill for active state */}
-                    {roomId === room.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded-r-full"></div>}
-                    
-                    <div className="w-12 h-12 rounded-[24px] group-hover:rounded-[16px] bg-[#313338] flex items-center justify-center transition-all duration-200 flex-shrink-0 text-green-500 overflow-hidden font-bold">
-                        {room.name ? room.name.slice(0, 2).toUpperCase() : "#"}
-                    </div>
-                    
-                    <div className="hidden md:flex flex-1 min-w-0 flex-col">
-                        <span className="font-medium truncate text-gray-300 group-hover:text-white">{room.name || room.id}</span>
-                    </div>
 
-                    <button 
-                        onClick={(e) => deleteRoom(room.id, e)}
-                        className="hidden md:block p-1 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                        <CloseIcon className="w-4 h-4" />
-                    </button>
-                 </div>
-             ))}
+          {/* Main Area */}
+          <div className="flex-1 flex flex-col bg-[#050505]">
+              <div className="p-8 max-w-4xl mx-auto w-full space-y-8">
+                  <div className="text-center space-y-2">
+                      <h2 className="text-2xl font-bold text-white tracking-tight">Command Center</h2>
+                      <p className="text-gray-600">Establish secure connection or locate operatives.</p>
+                  </div>
 
-             {savedRooms.length === 0 && (
-                 <div className="text-center mt-4 text-xs text-gray-500 hidden md:block px-2">
-                     No saved chats. Join a room to see it here.
-                 </div>
-             )}
-          </div>
-          
-          {/* Settings / User Area */}
-          <div className="bg-[#232428] p-2 md:p-3 flex items-center gap-2">
-               <div className="w-8 h-8 rounded-full bg-green-700 flex items-center justify-center font-bold text-xs cursor-pointer hover:opacity-80 transition-opacity">
-                    {username ? username.slice(0,2).toUpperCase() : "?"}
-               </div>
-               <div className="hidden md:block flex-1 min-w-0">
-                    <div className="text-xs font-bold text-white truncate">{username || "Anonymous"}</div>
-                    <div className="text-[10px] text-gray-400">#{userId.slice(0,4)}</div>
-               </div>
-               <button 
-                onClick={toggleSettings}
-                className={`p-2 rounded hover:bg-gray-700 ${saveMessages ? 'text-green-500' : 'text-gray-400'}`}
-                title={saveMessages ? "Messages Saving ON" : "Messages Saving OFF"}
-               >
-                   <Settings className="w-4 h-4" />
-               </button>
-          </div>
-      </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Search Users */}
+                      <div className="bg-[#111] p-6 rounded border border-[#222]">
+                          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center gap-2"><Search className="w-4 h-4" /> Global User Search</h3>
+                          <div className="relative">
+                              <input 
+                                  type="text" 
+                                  className="w-full bg-[#0a0a0a] border border-[#333] p-3 rounded text-white focus:border-green-600 focus:outline-none"
+                                  placeholder="Search codename..."
+                                  value={searchQuery}
+                                  onChange={(e) => handleSearch(e.target.value)}
+                              />
+                              {isSearching && <div className="absolute right-3 top-3"><Loader2 className="w-4 h-4 animate-spin text-gray-500" /></div>}
+                          </div>
+                          {searchResults.length > 0 && (
+                              <div className="mt-2 space-y-1 bg-[#0a0a0a] border border-[#222] rounded max-h-40 overflow-y-auto">
+                                  {searchResults.map(u => (
+                                      <div key={u.user_id} className="p-2 hover:bg-[#1a1a1a] flex items-center justify-between cursor-pointer" onClick={() => {
+                                          // Start chat logic? For now just create a room with their name
+                                          // Or copy their name
+                                          setRoomName(`Chat with ${u.username}`);
+                                          handleCreate(); // This creates a NEW room, not a direct DM. 
+                                          // Direct DM requires knowing their ID and inviting them.
+                                          // For now, let's just copy their name to clipboard or something.
+                                      }}>
+                                          <span className="text-sm font-medium text-green-500">{u.username}</span>
+                                          <UserPlus className="w-3 h-3 text-gray-600" />
+                                      </div>
+                                  ))}
+                              </div>
+                          )}
+                      </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col bg-[#313338] relative overflow-y-auto">
-          {/* Top Bar */}
-          <div className="h-12 border-b border-[#26272d] flex-shrink-0 flex items-center px-4 shadow-sm bg-[#313338]">
-               <div className="flex items-center gap-2 text-gray-400">
-                   <Clock className="w-5 h-5" />
-                   <span className="font-bold text-white">Find or Start a Conversation</span>
-               </div>
-          </div>
-          
-          {/* Center Content */}
-          <div className="flex-1 flex items-center justify-center p-4 bg-[url('https://core-normal.traeapi.us/api/ide/v1/text_to_image?prompt=dark+cyberpunk+abstract+network+nodes+minimalist+background&image_size=landscape_16_9')] bg-cover bg-center min-h-0">
-               <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-               <div className="w-full max-w-2xl relative z-10 py-8 overflow-y-auto max-h-full custom-scrollbar">
-                    <div className="text-center mb-10">
-                        <h1 className="text-5xl font-extrabold text-white mb-4 tracking-tight drop-shadow-lg">Vault</h1>
-                        <p className="text-xl text-gray-300 font-light">Secure. Ephemeral. Anonymous.</p>
-                    </div>
-                    
-                    <div className="bg-[#2b2d31]/90 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-gray-700/50">
-                        <div className="mb-8 space-y-4">
-                            <div>
-                                <label className="text-sm font-bold text-gray-300 uppercase mb-2 block tracking-wide">Username (Unique ID)</label>
-                                <input
-                                    type="text"
-                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all font-medium text-lg placeholder-gray-600"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                    placeholder="Enter your unique username..."
-                                />
-                            </div>
-                            <div>
-                                <label className="text-sm font-bold text-gray-300 uppercase mb-2 block tracking-wide">Display Name (Optional)</label>
-                                <input
-                                    type="text"
-                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all font-medium text-lg placeholder-gray-600"
-                                    value={displayName}
-                                    onChange={(e) => setDisplayName(e.target.value)}
-                                    placeholder="Name seen in chat..."
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {/* Join Column */}
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <div className="h-px flex-1 bg-gray-700"></div>
-                                    <span className="text-gray-400 text-sm font-semibold uppercase">Join Existing</span>
-                                    <div className="h-px flex-1 bg-gray-700"></div>
-                                </div>
-                                <input
-                                    type="text"
-                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder-gray-600"
-                                    value={roomId}
-                                    onChange={(e) => setRoomId(e.target.value)}
-                                    placeholder="Paste Room ID / Invite Code"
-                                />
-                                <button
-                                    onClick={() => handleJoin(roomId)}
-                                    disabled={!roomId || (!username && !savedRooms.find(r => r.id === roomId)) || isWaiting}
-                                    className="w-full bg-[#5865F2] hover:bg-[#4752c4] text-white py-3 rounded-lg font-bold transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-blue-500/20 flex items-center justify-center gap-2"
-                                >
-                                    {isWaiting ? <><Loader2 className="w-5 h-5 animate-spin" /> Requesting Access...</> : "Join Room"}
-                                </button>
-                            </div>
-
-                            {/* Create Column */}
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <div className="h-px flex-1 bg-gray-700"></div>
-                                    <span className="text-gray-400 text-sm font-semibold uppercase">Create New</span>
-                                    <div className="h-px flex-1 bg-gray-700"></div>
-                                </div>
-                                <input
-                                    type="text"
-                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder-gray-600 mb-4"
-                                    value={customRoomId}
-                                    onChange={(e) => setCustomRoomId(e.target.value)}
-                                    placeholder="Custom Room ID (Optional)"
-                                />
-                                <input
-                                    type="text"
-                                    className="w-full bg-[#1e1f22] text-white px-4 py-3 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder-gray-600"
-                                    value={roomName}
-                                    onChange={(e) => setRoomName(e.target.value)}
-                                    placeholder="Room Name (Optional)"
-                                />
-                                <button
-                                    onClick={handleCreate}
-                                    disabled={!username}
-                                    className="w-full bg-[#248046] hover:bg-[#1a6334] text-white py-3 rounded-lg font-bold transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-green-500/20"
-                                >
-                                    Create Secure Room
-                                </button>
-                            </div>
-                        </div>
-                        
-                        {error && (
-                            <div className="mt-6 p-3 bg-red-500/10 border border-red-500/50 rounded text-red-400 text-sm text-center font-medium animate-pulse">
-                                {error}
-                            </div>
-                        )}
-                    </div>
-               </div>
+                      {/* Create Server */}
+                      <div className="bg-[#111] p-6 rounded border border-[#222]">
+                          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> New Operation</h3>
+                          <button onClick={handleCreate} className="w-full bg-green-700 hover:bg-green-600 text-white py-3 rounded font-bold transition-colors">
+                              Initialize Secure Server
+                          </button>
+                          <div className="mt-4">
+                              <input 
+                                  type="text" 
+                                  placeholder="Enter Existing Server ID"
+                                  className="w-full bg-[#0a0a0a] border border-[#333] p-3 rounded text-white focus:border-blue-600 focus:outline-none mb-2"
+                                  onChange={(e) => setRoomId(e.target.value)}
+                              />
+                              <button onClick={() => handleJoin(roomId)} disabled={!roomId} className="w-full bg-[#222] hover:bg-[#333] text-gray-300 py-2 rounded font-medium border border-[#333]">
+                                  Join Frequency
+                              </button>
+                          </div>
+                      </div>
+                  </div>
+              </div>
           </div>
       </div>
-    </div>
   );
 }
 
 export default function Home() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<div className="bg-black h-screen flex items-center justify-center text-green-900">INITIALIZING...</div>}>
       <ChatEntry />
     </Suspense>
   );
