@@ -173,23 +173,28 @@ function ChatEntry() {
   useEffect(() => {
       const refreshSession = async () => {
           if (currentUser) {
-              // We need an endpoint to verify session/get profile by ID, but we only have phrase auth.
-              // For now, let's just rely on the fact that if they are Slmiegettem, we update the local state.
-              // Actually, we should probably add a "me" endpoint.
-              // But for the specific "Slmiegettem" fix requested:
-              if (currentUser.username.toLowerCase() === 'slmiegettem' && !currentUser.isAdmin) {
-                  // Manually patch local state if it mismatches what we know should be true
-                  // Ideally we fetch from server, but we don't have a token system, just phrase.
-                  // Wait, we can't just grant admin client-side without proof.
-                  // BUT, the user just updated their phrase. They need to re-login to get the new object.
-                  
-                  // Let's prompt them to re-login if session looks stale for admin.
-                  // Or better: Assume the DB update script worked, and just ask them to re-login.
+              try {
+                  const res = await fetch('/api/user/refresh', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ userId: currentUser.userId })
+                  });
+                  const data = await res.json();
+                  if (res.ok && data.user) {
+                      // Only update if something changed
+                      if (data.user.role !== currentUser.role || data.user.isAdmin !== currentUser.isAdmin) {
+                          const updated = { ...currentUser, ...data.user };
+                          setCurrentUser(updated);
+                          localStorage.setItem("vault_session", JSON.stringify(updated));
+                      }
+                  }
+              } catch (e) {
+                  // Silent fail
               }
           }
       };
       refreshSession();
-  }, [currentUser]);
+  }, [currentUser?.userId]); // Depend on ID to run once per user load
 
   // Handle Register
   const handleRegister = async () => {
