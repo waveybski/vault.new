@@ -703,8 +703,18 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
                                 <div className="flex items-baseline gap-2">
                                     <span className="font-medium text-gray-100 hover:underline cursor-pointer flex items-center gap-2">
                                         {msg.senderDisplayName || msg.senderUsername || userMap.get(msg.senderId)?.displayName || userMap.get(msg.senderId)?.username || "Unknown"}
-                                        {userMap.get(msg.senderId)?.role === 'owner' && <span className="text-[10px] bg-red-900/50 text-red-400 px-1 rounded border border-red-800 font-bold uppercase">OWNER</span>}
-                                        {userMap.get(msg.senderId)?.role === 'admin' && <span className="text-[10px] bg-orange-900/50 text-orange-400 px-1 rounded border border-orange-800 font-bold uppercase">ADMIN</span>}
+                                        
+                                        {/* Display Ranks in Chat Header */}
+                                        {userMap.get(msg.senderId)?.role === 'owner' && (
+                                            <span className="text-[10px] bg-red-900/80 text-red-200 px-1.5 py-0.5 rounded border border-red-500 font-bold uppercase tracking-wide">
+                                                OWNER
+                                            </span>
+                                        )}
+                                        {userMap.get(msg.senderId)?.role === 'admin' && (
+                                            <span className="text-[10px] bg-orange-900/80 text-orange-200 px-1.5 py-0.5 rounded border border-orange-500 font-bold uppercase tracking-wide">
+                                                ADMIN
+                                            </span>
+                                        )}
                                     </span>
                                     <span className="text-xs text-gray-500 ml-1">
                                         {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString()}
