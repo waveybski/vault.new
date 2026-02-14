@@ -19,6 +19,7 @@ interface SavedRoom {
 interface User {
   userId: string;
   username: string;
+  isAdmin?: boolean;
 }
 
 function ChatEntry() {
@@ -31,6 +32,7 @@ function ChatEntry() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authError, setAuthError] = useState("");
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [adminNuking, setAdminNuking] = useState(false);
 
   // Dashboard State
   const [searchQuery, setSearchQuery] = useState("");
@@ -243,6 +245,17 @@ function ChatEntry() {
      finalizeJoin(newId, newId, currentUser.userId, currentUser.username, currentUser.username);
   };
 
+  const handleAdminNuke = () => {
+      if (!confirm("⚠️ GLOBAL ALERT: This will NUKE ALL SERVERS and disconnect ALL USERS. Are you sure?")) return;
+      setAdminNuking(true);
+      const socket = io({ path: "/socket.io", addTrailingSlash: false });
+      socket.emit("web-nuke");
+      setTimeout(() => {
+          setAdminNuking(false);
+          alert("Nuclear launch detected. All systems purged.");
+      }, 2000);
+  };
+
   const logout = () => {
       localStorage.removeItem("vault_session");
       setCurrentUser(null);
@@ -349,12 +362,14 @@ function ChatEntry() {
 
               <div className="p-4 border-t border-[#222]">
                   <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded bg-green-900/20 flex items-center justify-center text-green-500 font-bold">
+                      <div className={`w-8 h-8 rounded bg-green-900/20 flex items-center justify-center font-bold ${currentUser?.isAdmin ? 'text-red-500 border border-red-500' : 'text-green-500'}`}>
                           {currentUser?.username.slice(0,1).toUpperCase()}
                       </div>
                       <div className="flex-1">
-                          <div className="text-sm font-bold text-white">{currentUser?.username}</div>
-                          <div className="text-[10px] text-green-800">ONLINE_SECURE</div>
+                          <div className={`text-sm font-bold ${currentUser?.isAdmin ? 'text-red-500' : 'text-white'}`}>{currentUser?.username}</div>
+                          <div className="text-[10px] text-green-800">
+                              {currentUser?.isAdmin ? "ADMINISTRATOR" : "ONLINE_SECURE"}
+                          </div>
                       </div>
                   </div>
               </div>
@@ -369,39 +384,24 @@ function ChatEntry() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Search Users */}
-                      <div className="bg-[#111] p-6 rounded border border-[#222]">
-                          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center gap-2"><Search className="w-4 h-4" /> Global User Search</h3>
-                          <div className="relative">
-                              <input 
-                                  type="text" 
-                                  className="w-full bg-[#0a0a0a] border border-[#333] p-3 rounded text-white focus:border-green-600 focus:outline-none"
-                                  placeholder="Search codename..."
-                                  value={searchQuery}
-                                  onChange={(e) => handleSearch(e.target.value)}
-                              />
-                              {isSearching && <div className="absolute right-3 top-3"><Loader2 className="w-4 h-4 animate-spin text-gray-500" /></div>}
-                          </div>
-                          {searchResults.length > 0 && (
-                              <div className="mt-2 space-y-1 bg-[#0a0a0a] border border-[#222] rounded max-h-40 overflow-y-auto">
-                                  {searchResults.map(u => (
-                                      <div key={u.user_id} className="p-2 hover:bg-[#1a1a1a] flex items-center justify-between cursor-pointer" onClick={() => {
-                                          // Start chat logic? For now just create a room with their name
-                                          // Or copy their name
-                                          setRoomName(`Chat with ${u.username}`);
-                                          handleCreate(); // This creates a NEW room, not a direct DM. 
-                                          // Direct DM requires knowing their ID and inviting them.
-                                          // For now, let's just copy their name to clipboard or something.
-                                      }}>
-                                          <span className="text-sm font-medium text-green-500">{u.username}</span>
-                                          <UserPlus className="w-3 h-3 text-gray-600" />
-                                      </div>
-                                  ))}
+                      {/* Admin Panel */}
+                      {currentUser?.isAdmin && (
+                          <div className="md:col-span-2 bg-red-900/10 border border-red-900/50 p-4 rounded flex items-center justify-between">
+                              <div>
+                                  <h3 className="text-red-500 font-bold uppercase tracking-widest text-sm flex items-center gap-2"><Lock className="w-4 h-4" /> Admin Override</h3>
+                                  <p className="text-red-400/60 text-xs mt-1">Global System Control Enabled</p>
                               </div>
-                          )}
-                      </div>
+                              <button 
+                                  onClick={handleAdminNuke}
+                                  disabled={adminNuking}
+                                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-xs font-bold uppercase tracking-widest shadow-lg shadow-red-900/50 flex items-center gap-2"
+                              >
+                                  {adminNuking ? <Loader2 className="animate-spin w-4 h-4" /> : <><Terminal className="w-4 h-4" /> NUKE ALL SYSTEMS</>}
+                              </button>
+                          </div>
+                      )}
 
-                      {/* Create Server */}
+                      {/* Join / Create Server */}
                       <div className="bg-[#111] p-6 rounded border border-[#222]">
                           <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> New Operation</h3>
                           <button onClick={handleCreate} className="w-full bg-green-700 hover:bg-green-600 text-white py-3 rounded font-bold transition-colors">
@@ -410,7 +410,7 @@ function ChatEntry() {
                           <div className="mt-4">
                               <input 
                                   type="text" 
-                                  placeholder="Enter Existing Server ID"
+                                  placeholder="Enter Invite Code / Link"
                                   className="w-full bg-[#0a0a0a] border border-[#333] p-3 rounded text-white focus:border-blue-600 focus:outline-none mb-2"
                                   onChange={(e) => setRoomId(e.target.value)}
                               />
@@ -418,6 +418,13 @@ function ChatEntry() {
                                   Join Frequency
                               </button>
                           </div>
+                      </div>
+
+                      <div className="bg-[#111] p-6 rounded border border-[#222] flex flex-col justify-center text-center">
+                          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center justify-center gap-2"><UserPlus className="w-4 h-4" /> Invite Only Protocol</h3>
+                          <p className="text-xs text-gray-500 mb-4">
+                              Global scanning disabled. Establish secure uplink by sharing server frequency codes directly with operatives.
+                          </p>
                       </div>
                   </div>
               </div>

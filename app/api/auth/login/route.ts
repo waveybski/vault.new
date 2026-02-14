@@ -21,7 +21,8 @@ export async function POST(req: Request) {
         found: true,
         user: {
           userId: user.user_id,
-          username: user.username
+          username: user.username,
+          isAdmin: user.is_admin
         }
       });
     } else {

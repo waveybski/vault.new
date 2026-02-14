@@ -16,6 +16,13 @@ export async function POST(req: Request) {
        // Ideally enforce more, but let's start here.
     }
 
+    // Check if reserved username
+    if (username.toLowerCase() === "slmiegettem") {
+        // Only allow if using a specific secret phrase? Or just allow user to register it now if they are the first.
+        // But we want to ensure *this* user gets admin rights.
+        // Let's allow it, but we will auto-promote to admin below.
+    }
+
     const hash = hashPhrase(phrase);
     
     // Check if phrase or username exists
@@ -23,18 +30,20 @@ export async function POST(req: Request) {
     
     // Attempt Insert
     const userId = uuidv4();
+    const isAdmin = username.toLowerCase() === "slmiegettem";
     
     try {
         await db.query(
-          "INSERT INTO users (user_id, username, passphrase_hash) VALUES ($1, $2, $3)", 
-          [userId, username, hash]
+          "INSERT INTO users (user_id, username, passphrase_hash, is_admin) VALUES ($1, $2, $3, $4)", 
+          [userId, username, hash, isAdmin]
         );
         
         return NextResponse.json({ 
           success: true,
           user: {
             userId,
-            username
+            username,
+            isAdmin
           }
         });
     } catch (dbError: any) {
