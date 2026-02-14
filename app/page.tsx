@@ -319,10 +319,6 @@ function ChatEntry() {
       setAuthMode('login');
   };
 
-  if (view === 'chat' && currentUser) {
-    return <Chat roomId={roomId} roomName={roomName} userId={currentUser.userId} username={currentUser.username} displayName={currentUser.username} saveMessages={saveMessages} onLeave={() => { setJoined(false); setView('dashboard'); }} onNuke={() => { removeRoom(roomId); setJoined(false); setView('dashboard'); }} />;
-  }
-
   const fetchFriends = async () => {
       if (!currentUser) return;
       try {
@@ -474,6 +470,11 @@ function ChatEntry() {
               </div>
           </div>
       );
+  }
+
+  // Chat Screen
+  if (view === 'chat' && currentUser) {
+    return <Chat roomId={roomId} roomName={roomName} userId={currentUser.userId} username={currentUser.username} displayName={currentUser.username} saveMessages={saveMessages} onLeave={() => { setJoined(false); setView('dashboard'); }} onNuke={() => { removeRoom(roomId); setJoined(false); setView('dashboard'); }} />;
   }
 
   // Dashboard
