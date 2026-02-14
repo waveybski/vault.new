@@ -75,7 +75,7 @@ app.prepare().then(() => {
         callback(exists);
     });
 
-    socket.on("join-room", (roomId, userId, username, displayName, callback) => {
+    socket.on("join-room", (roomId, userId, username, displayName, role, callback) => {
       // 1. Initialize room if new
       if (!roomData.has(roomId)) {
         roomData.set(roomId, {
@@ -94,72 +94,22 @@ app.prepare().then(() => {
 
       const room = roomData.get(roomId);
       
-      // 2. Check if user is the creator or already in (rejoin) or allowed
-      const isCreator = room.creatorId === userId;
-      const existingUser = room.users.find(u => u.userId === userId);
-      const isAllowed = room.allowedUsers.has(userId) || room.allowedUsernames.has(username);
+      // 2. OPEN ACCESS (Discord Style): Anyone with the ID can join immediately.
+      // Removed "waiting-approval" logic as per user request.
       
-      if (isCreator || existingUser || isAllowed) {
-          // Allow immediate entry
-          joinRoom(socket, roomId, userId, username, displayName, true, virtualIP); // true = isCreator (if applicable)
-          if (callback) callback({ size: room.users.length, isCreator, users: room.users, virtualIP });
-      } else {
-          // 3. New user requesting access
-          // Add to pending list
-          room.pending.push({ userId, username, displayName, socketId: socket.id });
-          
-          // Notify creator
-          // Fix: Ensure we find the CURRENT socket ID for the creator
-          const creatorUser = room.users.find(u => u.userId === room.creatorId);
-          if (creatorUser) {
-              io.to(creatorUser.socketId).emit("join-request", { userId, username });
-          }
-          
-          // Notify user they are waiting
-          socket.emit("waiting-approval");
-      }
+      joinRoom(socket, roomId, userId, username, displayName, role, isCreator, virtualIP); 
+      if (callback) callback({ size: room.users.length, isCreator, users: room.users, virtualIP });
+
+      // Notify others (redundant with joinRoom but safe)
+      // socket.to(roomId).emit("user-connected", ...); // Handled in joinRoom
     });
 
     socket.on("approve-join", ({ roomId, userId }) => {
-        const room = roomData.get(roomId);
-        if (!room) return;
-        
-        // Verify requester is creator? (omitted for speed, but ideally check socket.id)
-        
-        const pendingIdx = room.pending.findIndex(u => u.userId === userId);
-        if (pendingIdx !== -1) {
-            const user = room.pending[pendingIdx];
-            room.pending.splice(pendingIdx, 1);
-            
-            // Add to allowed set
-            room.allowedUsers.add(user.userId);
-            
-            // Get user socket
-            const userSocket = io.sockets.sockets.get(user.socketId);
-            if (userSocket) {
-                // @ts-ignore
-                const userVirtualIP = userSocket.virtualIP;
-                joinRoom(userSocket, roomId, user.userId, user.username, user.displayName, false, userVirtualIP);
-                userSocket.emit("join-approved", { 
-                    size: room.users.length, 
-                    isCreator: false, 
-                    users: room.users,
-                    virtualIP: userVirtualIP
-                });
-            }
-        }
+        // Legacy support (no-op now)
     });
 
     socket.on("reject-join", ({ roomId, userId }) => {
-        const room = roomData.get(roomId);
-        if (!room) return;
-        
-        const pendingIdx = room.pending.findIndex(u => u.userId === userId);
-        if (pendingIdx !== -1) {
-            const user = room.pending[pendingIdx];
-            room.pending.splice(pendingIdx, 1);
-            io.to(user.socketId).emit("join-rejected");
-        }
+         // Legacy support (no-op now)
     });
 
     socket.on("add-allowed-username", ({ roomId, targetUsername }) => {
@@ -192,7 +142,7 @@ app.prepare().then(() => {
         }
     });
 
-    function joinRoom(socket, roomId, userId, username, displayName, isCreator, virtualIP) {
+    function joinRoom(socket, roomId, userId, username, displayName, role, isCreator, virtualIP) {
         socket.join(roomId);
         usernames.set(socket.id, username);
         
@@ -201,9 +151,9 @@ app.prepare().then(() => {
         const existingIdx = room.users.findIndex(u => u.userId === userId);
         if (existingIdx !== -1) room.users.splice(existingIdx, 1);
         
-        room.users.push({ userId, username, displayName, socketId: socket.id, virtualIP });
+        room.users.push({ userId, username, displayName, role, socketId: socket.id, virtualIP });
         
-        socket.to(roomId).emit("user-connected", { userId, username, displayName, virtualIP });
+        socket.to(roomId).emit("user-connected", { userId, username, displayName, role, virtualIP });
 
         socket.on("disconnect", () => {
             handleDisconnect(socket, roomId, userId);

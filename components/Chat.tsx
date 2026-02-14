@@ -55,7 +55,7 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [users, setUsers] = useState<string[]>([]);
-  const [userMap, setUserMap] = useState<Map<string, {username: string, displayName?: string}>>(new Map());
+  const [userMap, setUserMap] = useState<Map<string, {username: string, displayName?: string, role?: string}>>(new Map());
   const [ipMap, setIpMap] = useState<Map<string, string>>(new Map()); // Store Virtual IPs
   const [identityKey, setIdentityKey] = useState<CryptoKeyPair | null>(null);
   const [roomKey, setRoomKey] = useState<CryptoKey | null>(null);
@@ -180,7 +180,7 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
     if (!socket || !identityKey || hasJoined) return;
 
     // Join Room
-    socket.emit("join-room", roomId, userId, username, displayName, async (response: { size: number; isCreator: boolean; users: {userId: string, username: string, displayName?: string, virtualIP?: string}[] }) => {
+    socket.emit("join-room", roomId, userId, username, displayName, async (response: { size: number; isCreator: boolean; users: {userId: string, username: string, displayName?: string, virtualIP?: string, role?: string}[] }) => {
       setHasJoined(true);
       if (response.isCreator) {
         // console.log("Creating room key...");
@@ -205,21 +205,21 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
       const newMap = new Map();
       const newIpMap = new Map();
       userList.forEach(u => {
-          newMap.set(u.userId, { username: u.username, displayName: u.displayName });
+          newMap.set(u.userId, { username: u.username, displayName: u.displayName, role: u.role });
           if (u.virtualIP) newIpMap.set(u.userId, u.virtualIP);
       });
       setUserMap(newMap);
       setIpMap(newIpMap);
     });
 
-    socket.on("user-connected", (data: {userId: string, username: string, displayName?: string, virtualIP?: string}) => {
+    socket.on("user-connected", (data: {userId: string, username: string, displayName?: string, virtualIP?: string, role?: string}) => {
       // Prevent duplicate join messages
       setUsers((prev) => {
         if (prev.includes(data.userId)) return prev;
         addSystemMessage(`${data.displayName || data.username || data.userId.slice(0, 4)} joined.`);
         return [...prev, data.userId];
       });
-      setUserMap(prev => new Map(prev).set(data.userId, { username: data.username, displayName: data.displayName }));
+      setUserMap(prev => new Map(prev).set(data.userId, { username: data.username, displayName: data.displayName, role: data.role }));
       if (data.virtualIP) {
           setIpMap(prev => new Map(prev).set(data.userId, data.virtualIP!));
       }
@@ -273,7 +273,8 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
                  const existing = newMap.get(data.senderId) || { username: data.senderId };
                  newMap.set(data.senderId, { 
                      username: data.username || existing.username, 
-                     displayName: data.displayName || existing.displayName 
+                     displayName: data.displayName || existing.displayName,
+                     role: existing.role // Preserve role
                  });
                  return newMap;
              });
@@ -593,9 +594,11 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
                           <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-gray-900 rounded-full"></div>
                       </div>
                       <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-gray-300 truncate group-hover:text-white">
+                          <div className="text-sm font-medium text-gray-300 truncate group-hover:text-white flex items-center gap-1">
                               {userMap.get(u)?.displayName || userMap.get(u)?.username || u.slice(0, 8)}
-                              {u === userId && <span className="ml-1 text-xs text-gray-500">(You)</span>}
+                              {u === userId && <span className="text-xs text-gray-500">(You)</span>}
+                              {userMap.get(u)?.role === 'owner' && <span className="text-[9px] text-red-500 font-bold border border-red-500 px-1 rounded uppercase">OWNER</span>}
+                              {userMap.get(u)?.role === 'admin' && <span className="text-[9px] text-orange-500 font-bold border border-orange-500 px-1 rounded uppercase">ADMIN</span>}
                           </div>
                           {/* Show unique username if different from display name */}
                           {userMap.get(u)?.displayName && userMap.get(u)?.displayName !== userMap.get(u)?.username && (
@@ -698,8 +701,10 @@ export default function Chat({ roomId, roomName, userId, username, displayName, 
                         <div className="flex-1 min-w-0">
                             {showHeader && (
                                 <div className="flex items-baseline gap-2">
-                                    <span className="font-medium text-gray-100 hover:underline cursor-pointer">
+                                    <span className="font-medium text-gray-100 hover:underline cursor-pointer flex items-center gap-2">
                                         {msg.senderDisplayName || msg.senderUsername || userMap.get(msg.senderId)?.displayName || userMap.get(msg.senderId)?.username || "Unknown"}
+                                        {userMap.get(msg.senderId)?.role === 'owner' && <span className="text-[10px] bg-red-900/50 text-red-400 px-1 rounded border border-red-800 font-bold uppercase">OWNER</span>}
+                                        {userMap.get(msg.senderId)?.role === 'admin' && <span className="text-[10px] bg-orange-900/50 text-orange-400 px-1 rounded border border-orange-800 font-bold uppercase">ADMIN</span>}
                                     </span>
                                     <span className="text-xs text-gray-500 ml-1">
                                         {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString()}

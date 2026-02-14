@@ -100,10 +100,19 @@ function ChatEntry() {
                 if (saved) {
                     try { setSavedRooms(JSON.parse(saved)); } catch (e) {}
                 }
+
+                // Auto-join if invite link present
+                const inviteCode = searchParams.get('join') || searchParams.get('invite');
+                if (inviteCode) {
+                    // We need to wait for socket/state? handleJoin handles it.
+                    // But handleJoin needs currentUser set. It is set above.
+                    // Use timeout to be safe with React batching
+                    setTimeout(() => handleJoin(inviteCode), 500);
+                }
             }
         } catch(e) {}
     }
-  }, []);
+  }, [searchParams]); // Add searchParams dependency
 
   // When user changes (login), load their rooms
   useEffect(() => {
@@ -140,6 +149,14 @@ function ChatEntry() {
               localStorage.setItem("vault_session", JSON.stringify(user));
               setView('dashboard');
               setPassphrase(""); // Clear secret
+
+              // Check for pending invite
+              const inviteCode = searchParams.get('join') || searchParams.get('invite');
+              if (inviteCode) {
+                  // Small delay to ensure state settles
+                  setTimeout(() => handleJoin(inviteCode), 500);
+              }
+
           } else {
               // Phrase not found, switch to register
               setAuthMode('register');
@@ -239,12 +256,13 @@ function ChatEntry() {
       // Use DB User ID
       const effectiveUserId = currentUser.userId;
       const effectiveUsername = currentUser.username;
+      const effectiveRole = currentUser.role || (currentUser.isAdmin ? 'admin' : 'user');
       
       const socket = io({ path: "/socket.io", addTrailingSlash: false });
       socketRef.current = socket;
 
       socket.on("connect", () => {
-          socket.emit("join-room", trimmedId, effectiveUserId, effectiveUsername, effectiveUsername, (response: any) => {
+          socket.emit("join-room", trimmedId, effectiveUserId, effectiveUsername, effectiveUsername, effectiveRole, (response: any) => {
                if (response) {
                    const resolvedName = existingRoom?.name || trimmedId;
                    finalizeJoin(trimmedId, resolvedName, effectiveUserId, effectiveUsername, effectiveUsername, response.virtualIP);
@@ -754,20 +772,20 @@ function ChatEntry() {
                           <div className="mt-4">
                               <input 
                                   type="text" 
-                                  placeholder="Enter Invite Code / Link"
+                                  placeholder="Enter Server Address or Link..."
                                   className="w-full bg-[#0a0a0a] border border-[#333] p-3 rounded text-white focus:border-blue-600 focus:outline-none mb-2"
                                   onChange={(e) => setRoomId(e.target.value)}
                               />
                               <button onClick={() => handleJoin(roomId)} disabled={!roomId} className="w-full bg-[#222] hover:bg-[#333] text-gray-300 py-2 rounded font-medium border border-[#333]">
-                                  Join Frequency
+                                  Connect to Server
                               </button>
                           </div>
                       </div>
 
                       <div className="bg-[#111] p-6 rounded border border-[#222] flex flex-col justify-center text-center">
-                          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center justify-center gap-2"><UserPlus className="w-4 h-4" /> Invite Only Protocol</h3>
+                          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center justify-center gap-2"><UserPlus className="w-4 h-4" /> Open Protocol</h3>
                           <p className="text-xs text-gray-500 mb-4">
-                              Global scanning disabled. Establish secure uplink by sharing server frequency codes directly with operatives.
+                              Share server links directly. Any operative with the link can connect immediately.
                           </p>
                       </div>
                   </div>
