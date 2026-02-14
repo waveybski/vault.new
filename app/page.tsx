@@ -506,9 +506,9 @@ function ChatEntry() {
                           {currentUser?.username.slice(0,1).toUpperCase()}
                       </div>
                       <div className="flex-1">
-                          <div className={`text-sm font-bold ${currentUser?.isAdmin ? 'text-red-500' : 'text-white'}`}>{currentUser?.username}</div>
+                          <div className={`text-sm font-bold ${currentUser?.role === 'owner' ? 'text-red-500' : currentUser?.role === 'admin' ? 'text-orange-500' : 'text-white'}`}>{currentUser?.username}</div>
                           <div className="text-[10px] text-green-800">
-                              {currentUser?.isAdmin ? "ADMINISTRATOR" : "ONLINE_SECURE"}
+                              {currentUser?.role === 'owner' ? "SYSTEM OWNER" : currentUser?.isAdmin ? "ADMINISTRATOR" : "ONLINE_SECURE"}
                           </div>
                       </div>
                       <button onClick={() => setShowSettings(!showSettings)} className="text-gray-500 hover:text-white"><Settings className="w-4 h-4" /></button>

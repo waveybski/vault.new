@@ -1,4 +1,4 @@
 $git = "C:\Program Files\Git\cmd\git.exe"
 & $git add .
-& $git commit -m "Feat: Role System (Owner/Admin) and Dashboard Fix"
+& $git commit -m "Fix: Correctly display SYSTEM OWNER label for owners"
 & $git push origin master
