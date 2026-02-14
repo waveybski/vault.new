@@ -20,6 +20,7 @@ interface User {
   userId: string;
   username: string;
   isAdmin?: boolean;
+  role?: string;
 }
 
 function ChatEntry() {
@@ -63,12 +64,12 @@ function ChatEntry() {
       } catch(e) {}
   };
 
-  const handleBan = async (userId: string, action: 'ban' | 'unban') => {
+  const handleBan = async (userId: string, action: 'ban' | 'unban' | 'promote', role?: string) => {
       try {
           await fetch('/api/admin/stats', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action, userId })
+              body: JSON.stringify({ action, userId, role })
           });
           fetchAdminStats();
       } catch(e) {}
@@ -530,8 +531,8 @@ function ChatEntry() {
 
                   {/* Admin Full Dashboard Modal */}
                   {showAdminPanel && (
-                      <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[100] p-4 overflow-y-auto">
-                          <div className="bg-[#111] border border-red-900 w-full max-w-5xl rounded-lg shadow-2xl shadow-red-900/20">
+                      <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[9999] p-4 overflow-y-auto">
+                          <div className="bg-[#111] border border-red-900 w-full max-w-5xl rounded-lg shadow-2xl shadow-red-900/20 relative">
                               <div className="p-4 border-b border-red-900 flex justify-between items-center bg-red-900/10">
                                   <h2 className="text-xl font-bold text-red-500 uppercase tracking-widest flex items-center gap-2">
                                       <Lock className="w-5 h-5" /> Owner Control Panel
@@ -547,16 +548,29 @@ function ChatEntry() {
                                           {adminStats?.users?.map((u: any) => (
                                               <div key={u.id} className="flex items-center justify-between p-2 hover:bg-[#1a1a1a] rounded border-b border-[#222]">
                                                   <div>
-                                                      <div className="text-sm font-bold text-gray-200">{u.username} {u.is_admin && <span className="text-red-500 text-[10px] ml-1">[OWNER]</span>}</div>
+                                                      <div className="text-sm font-bold text-gray-200">
+                                                          {u.username} 
+                                                          {u.role === 'owner' && <span className="text-red-500 text-[10px] ml-1 uppercase border border-red-500 px-1">[OWNER]</span>}
+                                                          {u.role === 'admin' && <span className="text-orange-500 text-[10px] ml-1 uppercase border border-orange-500 px-1">[ADMIN]</span>}
+                                                          {u.role === 'mod' && <span className="text-blue-500 text-[10px] ml-1 uppercase border border-blue-500 px-1">[MOD]</span>}
+                                                      </div>
                                                       <div className="text-[10px] text-gray-600 font-mono">ID: {u.user_id.slice(0,8)}...</div>
                                                   </div>
-                                                  {!u.is_admin && (
-                                                      <button 
-                                                          onClick={() => handleBan(u.user_id, 'ban')}
-                                                          className="text-xs bg-red-900/30 text-red-400 px-2 py-1 rounded hover:bg-red-900/50"
-                                                      >
-                                                          BAN
-                                                      </button>
+                                                  {u.role !== 'owner' && currentUser?.role === 'owner' && (
+                                                      <div className="flex gap-1">
+                                                          {u.role !== 'admin' && (
+                                                              <button onClick={() => handleBan(u.user_id, 'promote', 'admin')} className="text-[10px] bg-orange-900/30 text-orange-400 px-1 rounded hover:bg-orange-900/50">Make Admin</button>
+                                                          )}
+                                                          {u.role === 'admin' && (
+                                                              <button onClick={() => handleBan(u.user_id, 'promote', 'user')} className="text-[10px] bg-gray-800 text-gray-400 px-1 rounded hover:bg-gray-700">Demote</button>
+                                                          )}
+                                                          <button 
+                                                              onClick={() => handleBan(u.user_id, 'ban')}
+                                                              className="text-xs bg-red-900/30 text-red-400 px-2 py-1 rounded hover:bg-red-900/50"
+                                                          >
+                                                              BAN
+                                                          </button>
+                                                      </div>
                                                   )}
                                               </div>
                                           ))}

@@ -22,7 +22,8 @@ export async function POST(req: Request) {
         user: {
           userId: user.user_id,
           username: user.username,
-          isAdmin: user.is_admin
+          isAdmin: user.is_admin, // Keep for legacy compat
+          role: user.role
         }
       });
     } else {
